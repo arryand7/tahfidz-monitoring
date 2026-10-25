@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\BotController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\GateUserSyncController;
 use App\Http\Controllers\MasterQuranController;
@@ -14,6 +15,13 @@ use App\Http\Controllers\UstadzController;
 use Illuminate\Foundation\Application;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
+
+// Bot endpoints fallback for compatibility with /bot/* and double-slash normalization
+Route::prefix('bot')->middleware('bot.secret')->group(function () {
+    Route::get('manifest', [BotController::class, 'manifest']);
+    Route::post('query', [BotController::class, 'query']);
+    Route::post('{action}', [BotController::class, 'handleAction']);
+});
 
 Route::get('/', function () {
     return Inertia::render('Welcome', [
@@ -37,9 +45,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         ->middleware('feature:input_setoran,manage')
         ->name('input.setoran.store');
 
-    Route::get('/rekap-setoran', [RekapSetoranController::class, 'index'])
-        ->middleware('feature:rekap_setoran,view')
-        ->name('rekap.setoran');
+    Route::prefix('rekap-setoran')->middleware('feature:rekap_setoran,view')->group(function () {
+        Route::get('/', [RekapSetoranController::class, 'index'])->name('rekap.setoran');
+        Route::delete('/{id}', [RekapSetoranController::class, 'destroy'])->middleware('feature:rekap_setoran,manage')->name('rekap.setoran.destroy');
+        Route::post('/bulk-action', [RekapSetoranController::class, 'bulkAction'])->middleware('feature:rekap_setoran,manage')->name('rekap.setoran.bulk-action');
+    });
 
     Route::prefix('rekap-siswa')->middleware('feature:rekap_siswa,view')->group(function () {
         Route::get('/', [RekapSiswaController::class, 'index'])->name('rekap.siswa');
@@ -55,6 +65,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/template', [SiswaController::class, 'downloadTemplate'])->name('siswa.template');
         Route::post('/dry-run', [SiswaController::class, 'dryRun'])->middleware('feature:master_siswa,manage')->name('master.siswa.dry-run');
         Route::post('/apply-import', [SiswaController::class, 'applyImport'])->middleware('feature:master_siswa,manage')->name('master.siswa.apply-import');
+        Route::post('/bulk-action', [SiswaController::class, 'bulkAction'])->middleware('feature:master_siswa,manage')->name('master.siswa.bulk-action');
         Route::post('/', [SiswaController::class, 'store'])->middleware('feature:master_siswa,manage')->name('master.siswa.store');
         Route::post('/upload', [SiswaController::class, 'import'])->middleware('feature:master_siswa,manage')->name('master.siswa.upload');
         Route::put('/{id}', [SiswaController::class, 'update'])->middleware('feature:master_siswa,manage')->name('master.siswa.update');
@@ -65,6 +76,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::prefix('database-ustadz')->middleware('feature:master_ustadz,view')->group(function () {
         Route::get('/', [UstadzController::class, 'index'])->name('master.ustadz');
         Route::get('/template', [UstadzController::class, 'downloadTemplate'])->name('ustadz.template');
+        Route::post('/bulk-action', [UstadzController::class, 'bulkAction'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.bulk-action');
         Route::post('/', [UstadzController::class, 'store'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.store');
         Route::put('/{id}', [UstadzController::class, 'update'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.update');
         Route::delete('/{id}', [UstadzController::class, 'destroy'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.destroy');
@@ -78,6 +90,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // Kelompok Route Kelola User
     Route::prefix('kelola-user')->middleware('feature:kelola_user,view')->group(function () {
         Route::get('/', [UserController::class, 'index'])->name('kelola.user');
+        Route::post('/bulk-action', [UserController::class, 'bulkAction'])->middleware('feature:kelola_user,manage')->name('kelola.user.bulk-action');
         Route::post('/', [UserController::class, 'store'])->middleware('feature:kelola_user,manage')->name('kelola.user.store');
         Route::put('/{id}', [UserController::class, 'update'])->middleware('feature:kelola_user,manage')->name('kelola.user.update');
         Route::delete('/{id}', [UserController::class, 'destroy'])->middleware('feature:kelola_user,manage')->name('kelola.user.destroy');

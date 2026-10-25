@@ -1,7 +1,7 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
 import TablePagination from '@/Components/TablePagination';
 import { exportToCsv } from '@/Utils/exportCsv';
-import { Head } from '@inertiajs/react';
+import { Head, router } from '@inertiajs/react';
 import { useState, useMemo } from 'react';
 
 export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, currentStudent }) {
@@ -108,6 +108,94 @@ export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, cu
         filterWaktu !== 'Semua Waktu' ||
         filterJenis !== 'Semua Jenis' ||
         filterNilai !== 'Semua Nilai';
+
+    const isAdmin = auth?.user?.role === 'Admin';
+
+    // State Bulk Action (Khusus Admin)
+    const [selectedSetoranIds, setSelectedSetoranIds] = useState([]);
+
+    const pageSetoranIds = useMemo(() => paginatedRiwayat.map((r) => r.id), [paginatedRiwayat]);
+    const isAllPageSelected =
+        pageSetoranIds.length > 0 && pageSetoranIds.every((id) => selectedSetoranIds.includes(id));
+    const isSomePageSelected = pageSetoranIds.some((id) => selectedSetoranIds.includes(id));
+
+    const toggleSelectSetoran = (id) => {
+        setSelectedSetoranIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAllPage = () => {
+        if (isAllPageSelected) {
+            setSelectedSetoranIds((prev) => prev.filter((id) => !pageSetoranIds.includes(id)));
+        } else {
+            setSelectedSetoranIds((prev) => Array.from(new Set([...prev, ...pageSetoranIds])));
+        }
+    };
+
+    const selectAllFiltered = () => {
+        setSelectedSetoranIds(filteredRiwayat.map((r) => r.id));
+    };
+
+    const clearSelection = () => {
+        setSelectedSetoranIds([]);
+    };
+
+    const handleDeleteSingle = (id, namaSiswa, surah, ayat) => {
+        if (
+            window.confirm(
+                `Yakin ingin menghapus riwayat setoran ${namaSiswa} (${surah}: ${ayat})? Tindakan ini tidak dapat dibatalkan.`
+            )
+        ) {
+            router.delete(route('rekap.setoran.destroy', id), {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedSetoranIds((prev) => prev.filter((item) => item !== id));
+                },
+            });
+        }
+    };
+
+    const handleBulkDelete = () => {
+        if (
+            !window.confirm(
+                `PERINGATAN: Yakin ingin menghapus ${selectedSetoranIds.length} catatan riwayat setoran terpilih secara permanen? Data yang dihapus tidak dapat dipulihkan.`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('rekap.setoran.bulk-action'),
+            {
+                action: 'delete',
+                ids: selectedSetoranIds,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedSetoranIds([]);
+                },
+            }
+        );
+    };
+
+    const handleBulkExportCsv = () => {
+        const selectedData = semuaRiwayat.filter((r) => selectedSetoranIds.includes(r.id));
+        const columns = [
+            { label: 'Tanggal', key: 'tanggal' },
+            { label: 'NIS', key: 'nis' },
+            { label: 'Nama Santri', key: 'namaSiswa' },
+            { label: 'Kelas', key: 'kelas' },
+            { label: 'Pembimbing', key: 'ustadz' },
+            { label: 'Jenis Setoran', key: 'jenis' },
+            { label: 'Surah', key: 'surah' },
+            { label: 'Ayat', key: 'ayat' },
+            { label: 'Nilai', key: 'nilai' },
+            { label: 'Catatan', key: 'catatan' },
+        ];
+        exportToCsv(`Setoran_Terpilih_${selectedData.length}_Data`, columns, selectedData);
+    };
 
     return (
         <AuthenticatedLayout
@@ -307,10 +395,48 @@ export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, cu
                         </span>
                     </div>
 
+                    {isAdmin && selectedSetoranIds.length > 0 && (
+                        <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-900">
+                            <div className="flex items-center gap-2">
+                                <span>✨ Terpilih <strong>{selectedSetoranIds.length}</strong> catatan setoran</span>
+                                {selectedSetoranIds.length < filteredRiwayat.length && (
+                                    <button
+                                        type="button"
+                                        onClick={selectAllFiltered}
+                                        className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-2"
+                                    >
+                                        Pilih seluruh {filteredRiwayat.length} catatan hasil filter
+                                    </button>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={clearSelection}
+                                className="text-gray-500 hover:text-red-600 font-medium"
+                            >
+                                Batalkan pilihan
+                            </button>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b border-gray-200">
                                 <tr>
+                                    {isAdmin && (
+                                        <th className="py-3 px-4 w-10 text-center">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                checked={isAllPageSelected}
+                                                ref={(el) => {
+                                                    if (el) el.indeterminate = isSomePageSelected && !isAllPageSelected;
+                                                }}
+                                                onChange={toggleSelectAllPage}
+                                                title="Pilih semua di halaman ini"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="py-3 px-4">Tanggal</th>
                                     {!isStudent && <th className="py-3 px-4">Santri</th>}
                                     <th className="py-3 px-4">Pembimbing</th>
@@ -318,12 +444,23 @@ export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, cu
                                     <th className="py-3 px-4">Surah & Ayat</th>
                                     <th className="py-3 px-4 text-center">Predikat</th>
                                     <th className="py-3 px-4">Catatan Ustadz</th>
+                                    {isAdmin && <th className="py-3 px-4 text-right">Aksi</th>}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedRiwayat.length > 0 ? (
                                     paginatedRiwayat.map((item) => (
-                                        <tr key={item.id} className="hover:bg-emerald-50/40 transition-colors">
+                                        <tr key={item.id} className={`hover:bg-emerald-50/40 transition-colors ${selectedSetoranIds.includes(item.id) ? 'bg-emerald-50/50' : ''}`}>
+                                            {isAdmin && (
+                                                <td className="py-3.5 px-4 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        checked={selectedSetoranIds.includes(item.id)}
+                                                        onChange={() => toggleSelectSetoran(item.id)}
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="py-3.5 px-4 font-medium text-gray-900 whitespace-nowrap">
                                                 {item.tanggal}
                                             </td>
@@ -378,12 +515,23 @@ export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, cu
                                             <td className="py-3.5 px-4 text-gray-600 max-w-xs truncate">
                                                 {item.catatan || '-'}
                                             </td>
+                                            {isAdmin && (
+                                                <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                                                    <button
+                                                        onClick={() => handleDeleteSingle(item.id, item.namaSiswa, item.surah, item.ayat)}
+                                                        className="px-2.5 py-1 text-xs text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition font-medium"
+                                                        title="Hapus Catatan Setoran"
+                                                    >
+                                                        🗑️ Hapus
+                                                    </button>
+                                                </td>
+                                            )}
                                         </tr>
                                     ))
                                 ) : (
                                     <tr>
                                         <td
-                                            colSpan={isStudent ? 6 : 7}
+                                            colSpan={(isStudent ? 6 : 7) + (isAdmin ? 2 : 0)}
                                             className="py-12 text-center text-gray-400"
                                         >
                                             <div className="flex flex-col items-center justify-center space-y-2">
@@ -419,6 +567,46 @@ export default function RekapSetoran({ auth, siswas, semuaRiwayat, isStudent, cu
                     />
                 </div>
             </div>
+
+            {/* FLOATING BULK ACTION BAR (Khusus Admin) */}
+            {isAdmin && selectedSetoranIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white border border-slate-700/80 rounded-2xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+                        <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400 whitespace-nowrap">
+                            {selectedSetoranIds.length} Setoran Terpilih
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={handleBulkDelete}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>🗑️</span> Hapus Riwayat Terpilih
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkExportCsv}
+                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>📥</span> Export CSV
+                        </button>
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            className="px-2.5 py-1.5 text-slate-400 hover:text-white text-xs font-medium transition"
+                            title="Batalkan Pilihan"
+                        >
+                            ✕ Batal
+                        </button>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

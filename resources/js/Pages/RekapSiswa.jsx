@@ -52,6 +52,48 @@ export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStu
         exportToCsv(`Rekap_Akumulasi_Santri_${filterKelas || 'Semua'}`, columns, filteredSiswa);
     };
 
+    const isAdmin = auth?.user?.role === 'Admin';
+    const [selectedSiswaIds, setSelectedSiswaIds] = useState([]);
+
+    const pageSiswaIds = useMemo(() => paginatedSiswa.map((s) => s.id), [paginatedSiswa]);
+    const isAllPageSelected =
+        pageSiswaIds.length > 0 && pageSiswaIds.every((id) => selectedSiswaIds.includes(id));
+    const isSomePageSelected = pageSiswaIds.some((id) => selectedSiswaIds.includes(id));
+
+    const toggleSelectSiswa = (id) => {
+        setSelectedSiswaIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAllPage = () => {
+        if (isAllPageSelected) {
+            setSelectedSiswaIds((prev) => prev.filter((id) => !pageSiswaIds.includes(id)));
+        } else {
+            setSelectedSiswaIds((prev) => Array.from(new Set([...prev, ...pageSiswaIds])));
+        }
+    };
+
+    const selectAllFiltered = () => {
+        setSelectedSiswaIds(filteredSiswa.map((s) => s.id));
+    };
+
+    const clearSelection = () => {
+        setSelectedSiswaIds([]);
+    };
+
+    const handleBulkExportCsv = () => {
+        const selectedData = rekapSiswaData.filter((s) => selectedSiswaIds.includes(s.id));
+        const columns = [
+            { label: 'NIS', key: 'nis' },
+            { label: 'Nama Santri', key: 'nama' },
+            { label: 'Kelas', key: 'kelas' },
+            { label: 'Total Hafalan Baru', key: 'totalHafalan' },
+            { label: 'Total Murojaah', key: 'totalMurojaah' },
+        ];
+        exportToCsv(`Rekap_Akumulasi_Santri_Terpilih_${selectedData.length}_Siswa`, columns, selectedData);
+    };
+
     return (
         <AuthenticatedLayout
             user={auth.user}
@@ -212,10 +254,48 @@ export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStu
                         </div>
                     </div>
 
+                    {isAdmin && selectedSiswaIds.length > 0 && (
+                        <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-900">
+                            <div className="flex items-center gap-2">
+                                <span>✨ Terpilih <strong>{selectedSiswaIds.length}</strong> santri</span>
+                                {selectedSiswaIds.length < filteredSiswa.length && (
+                                    <button
+                                        type="button"
+                                        onClick={selectAllFiltered}
+                                        className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-2"
+                                    >
+                                        Pilih seluruh {filteredSiswa.length} santri hasil filter
+                                    </button>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={clearSelection}
+                                className="text-gray-500 hover:text-red-600 font-medium"
+                            >
+                                Batalkan pilihan
+                            </button>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b border-gray-200">
                                 <tr>
+                                    {isAdmin && (
+                                        <th className="py-3 px-4 w-10 text-center">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                checked={isAllPageSelected}
+                                                ref={(el) => {
+                                                    if (el) el.indeterminate = isSomePageSelected && !isAllPageSelected;
+                                                }}
+                                                onChange={toggleSelectAllPage}
+                                                title="Pilih semua di halaman ini"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="py-3 px-6">NIS</th>
                                     <th className="py-3 px-6">Nama Lengkap</th>
                                     <th className="py-3 px-6">Kelas</th>
@@ -226,7 +306,17 @@ export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStu
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedSiswa.length > 0 ? (
                                     paginatedSiswa.map((siswa) => (
-                                        <tr key={siswa.id} className="hover:bg-emerald-50/40 transition-colors">
+                                        <tr key={siswa.id} className={`hover:bg-emerald-50/40 transition-colors ${selectedSiswaIds.includes(siswa.id) ? 'bg-emerald-50/50' : ''}`}>
+                                            {isAdmin && (
+                                                <td className="py-4 px-4 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        checked={selectedSiswaIds.includes(siswa.id)}
+                                                        onChange={() => toggleSelectSiswa(siswa.id)}
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="py-4 px-6 font-mono font-medium text-gray-900">
                                                 {siswa.nis}
                                             </td>
@@ -278,7 +368,7 @@ export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStu
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan="5" className="py-12 text-center text-gray-400">
+                                        <td colSpan={5 + (isAdmin ? 1 : 0)} className="py-12 text-center text-gray-400">
                                             <div className="flex flex-col items-center justify-center space-y-2">
                                                 <span className="text-4xl">🎓</span>
                                                 <p className="text-sm font-medium text-gray-600">
@@ -302,6 +392,39 @@ export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStu
                     />
                 </div>
             </div>
+
+            {/* FLOATING BULK ACTION BAR (Khusus Admin) */}
+            {isAdmin && selectedSiswaIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white border border-slate-700/80 rounded-2xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+                        <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400 whitespace-nowrap">
+                            {selectedSiswaIds.length} Santri Terpilih
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={handleBulkExportCsv}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>📥</span> Export CSV Santri Terpilih
+                        </button>
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            className="px-2.5 py-1.5 text-slate-400 hover:text-white text-xs font-medium transition"
+                            title="Batalkan Pilihan"
+                        >
+                            ✕ Batal
+                        </button>
+                    </div>
+                </div>
+            )}
         </AuthenticatedLayout>
     );
 }

@@ -44,4 +44,8 @@ return [
         'local_path' => env('SSO_LOCAL_PATH', '/Users/ryand/Documents/LARAVEL/sabira/gate-sso'),
     ],
 
+    'wa_bot' => [
+        'secret_key' => env('WA_BOT_SECRET_KEY'),
+    ],
+
 ];

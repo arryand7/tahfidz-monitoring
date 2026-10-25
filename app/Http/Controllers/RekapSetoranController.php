@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Setoran;
 use App\Models\Siswa;
 use Carbon\Carbon;
+use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class RekapSetoranController extends Controller
@@ -80,5 +81,44 @@ class RekapSetoranController extends Controller
             'isStudent' => false,
             'currentStudent' => null,
         ]);
+    }
+
+    // Hapus single setoran (Khusus Admin)
+    public function destroy($id)
+    {
+        if (auth()->user()?->role !== 'Admin') {
+            abort(403, 'Akses ditolak. Hanya Admin yang dapat menghapus riwayat setoran.');
+        }
+
+        Setoran::findOrFail($id)->delete();
+
+        return redirect()->back()->with('success', 'Riwayat setoran berhasil dihapus.');
+    }
+
+    // Bulk Action Hapus Setoran (Khusus Admin)
+    public function bulkAction(Request $request)
+    {
+        if ($request->user()?->role !== 'Admin') {
+            abort(403, 'Akses ditolak. Fitur aksi massal hanya dapat diakses oleh Admin.');
+        }
+
+        $validated = $request->validate([
+            'action' => 'required|in:delete',
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'required|integer|exists:setorans,id',
+        ]);
+
+        $ids = $validated['ids'];
+        $count = count($ids);
+
+        Setoran::whereIn('id', $ids)->delete();
+
+        $message = "Berhasil menghapus {$count} catatan riwayat setoran terpilih.";
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->back()->with('success', $message);
     }
 }

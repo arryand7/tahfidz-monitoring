@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Models\Ustadz;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class UstadzController extends Controller
@@ -104,5 +106,51 @@ class UstadzController extends Controller
         fclose($handle);
 
         return redirect()->back();
+    }
+
+    // 7. Bulk Action (Ubah Status, Hapus Massal - Khusus Admin)
+    public function bulkAction(Request $request)
+    {
+        if ($request->user()?->role !== 'Admin') {
+            abort(403, 'Akses ditolak. Fitur aksi massal (bulk action) hanya dapat diakses oleh Admin.');
+        }
+
+        $validated = $request->validate([
+            'action' => 'required|in:update_status,delete',
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'required|integer|exists:ustadzs,id',
+            'status' => 'nullable|required_if:action,update_status|in:Aktif,Non-Aktif',
+        ]);
+
+        $ids = $validated['ids'];
+        $count = count($ids);
+
+        DB::transaction(function () use ($validated, $ids) {
+            if ($validated['action'] === 'update_status') {
+                Ustadz::whereIn('id', $ids)->update(['status' => $validated['status']]);
+            } elseif ($validated['action'] === 'delete') {
+                $ustadzs = Ustadz::whereIn('id', $ids)->get();
+                $nipList = $ustadzs->pluck('nip')->filter()->toArray();
+
+                if (! empty($nipList)) {
+                    User::whereIn('username', $nipList)->where('role', 'Ustadz')->delete();
+                }
+
+                Ustadz::whereIn('id', $ids)->delete();
+            }
+        });
+
+        $actionMessages = [
+            'update_status' => "Berhasil memperbarui status untuk {$count} ustadz menjadi '{$request->input('status')}'.",
+            'delete' => "Berhasil menghapus {$count} data ustadz terpilih.",
+        ];
+
+        $message = $actionMessages[$validated['action']] ?? 'Aksi massal berhasil diproses.';
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->back()->with('success', $message);
     }
 }

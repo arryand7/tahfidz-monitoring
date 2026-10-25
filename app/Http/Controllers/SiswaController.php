@@ -466,4 +466,54 @@ class SiswaController extends Controller
 
         return redirect()->back();
     }
+
+    // 9. Fungsi Bulk Action (Aksi Massal: Ubah Kelas, Ubah Status, Hapus Massal - Khusus Admin)
+    public function bulkAction(Request $request)
+    {
+        if ($request->user()?->role !== 'Admin') {
+            abort(403, 'Akses ditolak. Fitur aksi massal (bulk action) hanya dapat diakses oleh Admin.');
+        }
+
+        $validated = $request->validate([
+            'action' => 'required|in:update_kelas,update_status,delete',
+            'ids' => 'required|array|min:1',
+            'ids.*' => 'required|integer|exists:siswas,id',
+            'kelas' => 'nullable|required_if:action,update_kelas|string|max:50',
+            'status' => 'nullable|required_if:action,update_status|in:Aktif,Non-Aktif',
+        ]);
+
+        $ids = $validated['ids'];
+        $count = count($ids);
+
+        DB::transaction(function () use ($validated, $ids) {
+            if ($validated['action'] === 'update_kelas') {
+                Siswa::whereIn('id', $ids)->update(['kelas' => $validated['kelas']]);
+            } elseif ($validated['action'] === 'update_status') {
+                Siswa::whereIn('id', $ids)->update(['status' => $validated['status']]);
+            } elseif ($validated['action'] === 'delete') {
+                $siswas = Siswa::whereIn('id', $ids)->get();
+                $nisList = $siswas->pluck('nis')->filter()->toArray();
+
+                if (! empty($nisList)) {
+                    User::whereIn('username', $nisList)->where('role', 'Siswa')->delete();
+                }
+
+                Siswa::whereIn('id', $ids)->delete();
+            }
+        });
+
+        $actionMessages = [
+            'update_kelas' => "Berhasil memperbarui kelas untuk {$count} santri ke kelas '{$request->input('kelas')}'.",
+            'update_status' => "Berhasil memperbarui status untuk {$count} santri menjadi '{$request->input('status')}'.",
+            'delete' => "Berhasil menghapus {$count} data santri terpilih beserta riwayat setorannya.",
+        ];
+
+        $message = $actionMessages[$validated['action']] ?? 'Aksi massal berhasil diproses.';
+
+        if ($request->wantsJson()) {
+            return response()->json(['success' => true, 'message' => $message]);
+        }
+
+        return redirect()->back()->with('success', $message);
+    }
 }

@@ -144,6 +144,126 @@ export default function DatabaseSiswa({ auth, siswas }) {
 
     const hasActiveFilter = Boolean(searchQuery) || Boolean(filterKelas) || filterStatus !== 'Semua';
     const canManage = auth?.user?.role === 'Admin' || auth?.permissions?.['master_siswa'] === 'manage';
+    const isAdmin = auth?.user?.role === 'Admin';
+
+    // State Bulk Action (Khusus Admin)
+    const [selectedSiswaIds, setSelectedSiswaIds] = useState([]);
+    const [isBulkKelasModalOpen, setIsBulkKelasModalOpen] = useState(false);
+    const [bulkTargetKelas, setBulkTargetKelas] = useState('');
+
+    const pageSiswaIds = useMemo(() => paginatedSiswa.map((s) => s.id), [paginatedSiswa]);
+    const isAllPageSelected = pageSiswaIds.length > 0 && pageSiswaIds.every((id) => selectedSiswaIds.includes(id));
+    const isSomePageSelected = pageSiswaIds.some((id) => selectedSiswaIds.includes(id));
+
+    const toggleSelectSiswa = (id) => {
+        setSelectedSiswaIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAllPage = () => {
+        if (isAllPageSelected) {
+            setSelectedSiswaIds((prev) => prev.filter((id) => !pageSiswaIds.includes(id)));
+        } else {
+            setSelectedSiswaIds((prev) => Array.from(new Set([...prev, ...pageSiswaIds])));
+        }
+    };
+
+    const selectAllFiltered = () => {
+        setSelectedSiswaIds(filteredSiswa.map((s) => s.id));
+    };
+
+    const clearSelection = () => {
+        setSelectedSiswaIds([]);
+    };
+
+    const handleBulkUpdateKelas = (e) => {
+        e.preventDefault();
+        if (!bulkTargetKelas.trim()) {
+            alert('Silakan pilih atau ketik nama kelas tujuan.');
+            return;
+        }
+        if (
+            !window.confirm(
+                `Pindahkan / ubah kelas ${selectedSiswaIds.length} santri terpilih menjadi "${bulkTargetKelas}"?`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('master.siswa.bulk-action'),
+            {
+                action: 'update_kelas',
+                ids: selectedSiswaIds,
+                kelas: bulkTargetKelas.trim(),
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedSiswaIds([]);
+                    setIsBulkKelasModalOpen(false);
+                    setBulkTargetKelas('');
+                },
+            }
+        );
+    };
+
+    const handleBulkUpdateStatus = (status) => {
+        if (!window.confirm(`Ubah status ${selectedSiswaIds.length} santri terpilih menjadi "${status}"?`)) {
+            return;
+        }
+
+        router.post(
+            route('master.siswa.bulk-action'),
+            {
+                action: 'update_status',
+                ids: selectedSiswaIds,
+                status,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedSiswaIds([]);
+                },
+            }
+        );
+    };
+
+    const handleBulkDelete = () => {
+        if (
+            !window.confirm(
+                `PERINGATAN: Yakin ingin menghapus ${selectedSiswaIds.length} santri terpilih beserta seluruh data riwayat setorannya secara permanen? Data yang dihapus tidak dapat dipulihkan.`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('master.siswa.bulk-action'),
+            {
+                action: 'delete',
+                ids: selectedSiswaIds,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedSiswaIds([]);
+                },
+            }
+        );
+    };
+
+    const handleBulkExportCsv = () => {
+        const selectedData = siswas.filter((s) => selectedSiswaIds.includes(s.id));
+        const columns = [
+            { label: 'NIS', key: 'nis' },
+            { label: 'Nama Lengkap', key: 'nama' },
+            { label: 'Kelas', key: 'kelas' },
+            { label: 'Status', key: 'status' },
+        ];
+        exportToCsv(`Data_Santri_Terpilih_${selectedData.length}_Siswa`, columns, selectedData);
+    };
 
     // Handler Unggah & Dry-Run
     const handleUploadAndDryRun = async () => {
@@ -500,10 +620,48 @@ export default function DatabaseSiswa({ auth, siswas }) {
                         </span>
                     </div>
 
+                    {isAdmin && selectedSiswaIds.length > 0 && (
+                        <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-900">
+                            <div className="flex items-center gap-2">
+                                <span>✨ Terpilih <strong>{selectedSiswaIds.length}</strong> santri</span>
+                                {selectedSiswaIds.length < filteredSiswa.length && (
+                                    <button
+                                        type="button"
+                                        onClick={selectAllFiltered}
+                                        className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-2"
+                                    >
+                                        Pilih seluruh {filteredSiswa.length} santri hasil filter
+                                    </button>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={clearSelection}
+                                className="text-gray-500 hover:text-red-600 font-medium"
+                            >
+                                Batalkan pilihan
+                            </button>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b border-gray-200">
                                 <tr>
+                                    {isAdmin && (
+                                        <th className="py-3 px-4 w-10 text-center">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                checked={isAllPageSelected}
+                                                ref={(el) => {
+                                                    if (el) el.indeterminate = isSomePageSelected && !isAllPageSelected;
+                                                }}
+                                                onChange={toggleSelectAllPage}
+                                                title="Pilih semua di halaman ini"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="py-3 px-6">NIS</th>
                                     <th className="py-3 px-6">Nama Lengkap</th>
                                     <th className="py-3 px-6">Kelas</th>
@@ -514,7 +672,17 @@ export default function DatabaseSiswa({ auth, siswas }) {
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedSiswa.length > 0 ? (
                                     paginatedSiswa.map((siswa) => (
-                                        <tr key={siswa.id} className="hover:bg-emerald-50/40 transition-colors">
+                                        <tr key={siswa.id} className={`hover:bg-emerald-50/40 transition-colors ${selectedSiswaIds.includes(siswa.id) ? 'bg-emerald-50/50' : ''}`}>
+                                            {isAdmin && (
+                                                <td className="py-4 px-4 text-center">
+                                                    <input
+                                                        type="checkbox"
+                                                        className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        checked={selectedSiswaIds.includes(siswa.id)}
+                                                        onChange={() => toggleSelectSiswa(siswa.id)}
+                                                    />
+                                                </td>
+                                            )}
                                             <td className="py-4 px-6 font-mono font-bold text-gray-900">
                                                 {siswa.nis}
                                             </td>
@@ -561,7 +729,7 @@ export default function DatabaseSiswa({ auth, siswas }) {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={canManage ? 5 : 4} className="py-12 text-center text-gray-400">
+                                        <td colSpan={4 + (canManage ? 1 : 0) + (isAdmin ? 1 : 0)} className="py-12 text-center text-gray-400">
                                             <div className="flex flex-col items-center justify-center space-y-2">
                                                 <span className="text-4xl">👥</span>
                                                 <p className="text-sm font-medium text-gray-600">
@@ -1136,6 +1304,141 @@ export default function DatabaseSiswa({ auth, siswas }) {
                                     className="px-4 py-2 text-xs font-bold text-white transition bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50"
                                 >
                                     {processing ? 'Menyimpan...' : 'Update Data'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* FLOATING BULK ACTION BAR (Khusus Admin) */}
+            {isAdmin && selectedSiswaIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white border border-slate-700/80 rounded-2xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+                        <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400 whitespace-nowrap">
+                            {selectedSiswaIds.length} Santri Terpilih
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => setIsBulkKelasModalOpen(true)}
+                            className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>🎓</span> Naik / Ubah Kelas
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleBulkUpdateStatus('Aktif')}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>✅</span> Set Aktif
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleBulkUpdateStatus('Non-Aktif')}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>⏸️</span> Set Non-Aktif
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkDelete}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>🗑️</span> Hapus Santri
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkExportCsv}
+                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>📥</span> Export CSV
+                        </button>
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            className="px-2.5 py-1.5 text-slate-400 hover:text-white text-xs font-medium transition"
+                            title="Batalkan Pilihan"
+                        >
+                            ✕ Batal
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL BULK NAIK / UBAH KELAS */}
+            {isBulkKelasModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                            <span className="p-2.5 bg-indigo-50 text-indigo-700 rounded-xl text-xl">🎓</span>
+                            <div>
+                                <h3 className="text-base font-bold text-gray-900">Ubah / Naikkan Kelas Massal</h3>
+                                <p className="text-xs text-gray-500">
+                                    Memperbarui kelas untuk <strong>{selectedSiswaIds.length}</strong> santri terpilih.
+                                </p>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleBulkUpdateKelas} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    Pilih Kelas Tersedia
+                                </label>
+                                <select
+                                    value={bulkTargetKelas}
+                                    onChange={(e) => setBulkTargetKelas(e.target.value)}
+                                    className="w-full text-xs py-2 border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
+                                >
+                                    <option value="">-- Pilih dari kelas yang ada --</option>
+                                    {kelasList.map((k) => (
+                                        <option key={k} value={k}>
+                                            Kelas {k}
+                                        </option>
+                                    ))}
+                                    <option value="Lulus / Alumni">Lulus / Alumni</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-1">
+                                    Atau Masukkan Nama Kelas Baru
+                                </label>
+                                <input
+                                    type="text"
+                                    placeholder="Contoh: 8A, 9B, Kelas Khusus..."
+                                    value={bulkTargetKelas}
+                                    onChange={(e) => setBulkTargetKelas(e.target.value)}
+                                    className="w-full text-xs py-2 border-gray-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500"
+                                />
+                                <p className="text-[11px] text-gray-400 mt-1">
+                                    * Cocok digunakan saat pergantian semester/tahun ajaran baru atau kelulusan santri.
+                                </p>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setIsBulkKelasModalOpen(false);
+                                        setBulkTargetKelas('');
+                                    }}
+                                    className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    disabled={!bulkTargetKelas.trim()}
+                                    className="px-5 py-2 text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 rounded-xl shadow-sm transition"
+                                >
+                                    Simpan Perubahan Kelas
                                 </button>
                             </div>
                         </form>

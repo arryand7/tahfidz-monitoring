@@ -149,6 +149,153 @@ export default function KelolaUser({ auth, users }) {
     };
 
     const canManage = auth?.user?.role === 'Admin' || auth?.permissions?.['kelola_user'] === 'manage';
+    const isAdmin = auth?.user?.role === 'Admin';
+
+    // State Bulk Action (Khusus Admin)
+    const [selectedUserIds, setSelectedUserIds] = useState([]);
+    const [isBulkRoleModalOpen, setIsBulkRoleModalOpen] = useState(false);
+    const [bulkTargetRole, setBulkTargetRole] = useState('Ustadz');
+
+    const selectablePageUserIds = useMemo(
+        () => paginatedUsers.filter((u) => u.id !== auth.user.id).map((u) => u.id),
+        [paginatedUsers, auth.user.id]
+    );
+    const isAllPageSelected =
+        selectablePageUserIds.length > 0 &&
+        selectablePageUserIds.every((id) => selectedUserIds.includes(id));
+    const isSomePageSelected = selectablePageUserIds.some((id) => selectedUserIds.includes(id));
+
+    const toggleSelectUser = (id) => {
+        if (id === auth.user.id) return;
+        setSelectedUserIds((prev) =>
+            prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+        );
+    };
+
+    const toggleSelectAllPage = () => {
+        if (isAllPageSelected) {
+            setSelectedUserIds((prev) => prev.filter((id) => !selectablePageUserIds.includes(id)));
+        } else {
+            setSelectedUserIds((prev) => Array.from(new Set([...prev, ...selectablePageUserIds])));
+        }
+    };
+
+    const selectAllFiltered = () => {
+        setSelectedUserIds(filteredUsers.filter((u) => u.id !== auth.user.id).map((u) => u.id));
+    };
+
+    const clearSelection = () => {
+        setSelectedUserIds([]);
+    };
+
+    const handleBulkUpdateRole = (e) => {
+        e.preventDefault();
+        if (
+            !window.confirm(
+                `Ubah peran / hak akses ${selectedUserIds.length} akun pengguna terpilih menjadi "${bulkTargetRole}"?`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('kelola.user.bulk-action'),
+            {
+                action: 'update_role',
+                ids: selectedUserIds,
+                role: bulkTargetRole,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedUserIds([]);
+                    setIsBulkRoleModalOpen(false);
+                },
+            }
+        );
+    };
+
+    const handleBulkUpdateStatus = (status) => {
+        if (!window.confirm(`Ubah status ${selectedUserIds.length} akun terpilih menjadi "${status}"?`)) {
+            return;
+        }
+
+        router.post(
+            route('kelola.user.bulk-action'),
+            {
+                action: 'update_status',
+                ids: selectedUserIds,
+                status,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedUserIds([]);
+                },
+            }
+        );
+    };
+
+    const handleBulkResetPassword = () => {
+        if (
+            !window.confirm(
+                `Reset password ${selectedUserIds.length} akun terpilih menjadi default "sabira123"? Pengguna yang bersangkutan dapat login kembali dengan password tersebut.`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('kelola.user.bulk-action'),
+            {
+                action: 'reset_password',
+                ids: selectedUserIds,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedUserIds([]);
+                    alert('Password akun terpilih berhasil direset menjadi "sabira123".');
+                },
+            }
+        );
+    };
+
+    const handleBulkDelete = () => {
+        if (
+            !window.confirm(
+                `PERINGATAN: Yakin ingin menghapus ${selectedUserIds.length} akun pengguna terpilih? Tindakan ini tidak dapat dibatalkan.`
+            )
+        ) {
+            return;
+        }
+
+        router.post(
+            route('kelola.user.bulk-action'),
+            {
+                action: 'delete',
+                ids: selectedUserIds,
+            },
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setSelectedUserIds([]);
+                },
+            }
+        );
+    };
+
+    const handleBulkExportCsv = () => {
+        const selectedData = users.filter((u) => selectedUserIds.includes(u.id));
+        const columns = [
+            { label: 'Username / NIS / NIP', key: 'username' },
+            { label: 'Nama Lengkap', key: 'name' },
+            { label: 'Email', key: 'email' },
+            { label: 'Peran (Role)', key: 'role' },
+            { label: 'Status', key: 'status' },
+        ];
+        exportToCsv(`Data_Pengguna_Terpilih_${selectedData.length}_Akun`, columns, selectedData);
+    };
 
     return (
         <AuthenticatedLayout user={auth.user} header="Manajemen Akun Pengguna">
@@ -301,10 +448,48 @@ export default function KelolaUser({ auth, users }) {
                         </span>
                     </div>
 
+                    {isAdmin && selectedUserIds.length > 0 && (
+                        <div className="bg-emerald-50 border-b border-emerald-100 px-6 py-2.5 flex items-center justify-between text-xs text-emerald-900">
+                            <div className="flex items-center gap-2">
+                                <span>✨ Terpilih <strong>{selectedUserIds.length}</strong> akun pengguna</span>
+                                {selectedUserIds.length < filteredUsers.filter((u) => u.id !== auth.user.id).length && (
+                                    <button
+                                        type="button"
+                                        onClick={selectAllFiltered}
+                                        className="font-bold underline text-emerald-700 hover:text-emerald-900 ml-2"
+                                    >
+                                        Pilih seluruh {filteredUsers.filter((u) => u.id !== auth.user.id).length} akun hasil filter
+                                    </button>
+                                )}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={clearSelection}
+                                className="text-gray-500 hover:text-red-600 font-medium"
+                            >
+                                Batalkan pilihan
+                            </button>
+                        </div>
+                    )}
+
                     <div className="overflow-x-auto">
                         <table className="w-full text-left border-collapse text-xs">
                             <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b border-gray-200">
                                 <tr>
+                                    {isAdmin && (
+                                        <th className="py-3 px-4 w-10 text-center">
+                                            <input
+                                                type="checkbox"
+                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                checked={isAllPageSelected}
+                                                ref={(el) => {
+                                                    if (el) el.indeterminate = isSomePageSelected && !isAllPageSelected;
+                                                }}
+                                                onChange={toggleSelectAllPage}
+                                                title="Pilih semua di halaman ini"
+                                            />
+                                        </th>
+                                    )}
                                     <th className="py-3 px-6">Username / NIS / NIP</th>
                                     <th className="py-3 px-6">Nama Pengguna</th>
                                     <th className="py-3 px-6">Email Terdaftar</th>
@@ -315,64 +500,91 @@ export default function KelolaUser({ auth, users }) {
                             </thead>
                             <tbody className="divide-y divide-gray-100">
                                 {paginatedUsers.length > 0 ? (
-                                    paginatedUsers.map((u) => (
-                                        <tr key={u.id} className="hover:bg-emerald-50/40 transition-colors">
-                                            <td className="py-4 px-6 font-mono font-medium text-gray-900">
-                                                {u.username || '-'}
-                                            </td>
-                                            <td className="py-4 px-6 font-bold text-gray-900 text-sm">
-                                                {u.name}
-                                            </td>
-                                            <td className="py-4 px-6 text-gray-500">
-                                                {u.email || '-'}
-                                            </td>
-                                            <td className="py-4 px-6 text-center">
-                                                <span
-                                                    className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getRoleBadge(
-                                                        u.role
-                                                    )}`}
-                                                >
-                                                    {u.role === 'Siswa' ? 'Santri' : u.role}
-                                                </span>
-                                            </td>
-                                            <td className="py-4 px-6 text-center">
-                                                <span
-                                                    className={`inline-block px-2.5 py-1 text-[11px] font-bold rounded-full border ${
-                                                        u.status === 'Aktif'
-                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
-                                                            : 'bg-red-50 text-red-700 border-red-200'
-                                                    }`}
-                                                >
-                                                    {u.status}
-                                                </span>
-                                            </td>
-                                            {canManage && (
-                                                <td className="py-4 px-6 text-right">
-                                                    <div className="flex justify-end space-x-2">
-                                                        <button
-                                                            onClick={() => openEditModal(u)}
-                                                            className="px-2.5 py-1.5 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition font-medium"
-                                                            title="Edit Akun"
-                                                        >
-                                                            ✏️ Edit
-                                                        </button>
-                                                        {auth.user.id !== u.id && (
-                                                            <button
-                                                                onClick={() => deleteUser(u.id, u.name)}
-                                                                className="px-2.5 py-1.5 text-xs text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition font-medium"
-                                                                title="Hapus Akun"
-                                                            >
-                                                                🗑️ Hapus
-                                                            </button>
+                                    paginatedUsers.map((u) => {
+                                        const isSelf = auth.user.id === u.id;
+                                        return (
+                                            <tr key={u.id} className={`hover:bg-emerald-50/40 transition-colors ${selectedUserIds.includes(u.id) ? 'bg-emerald-50/50' : ''}`}>
+                                                {isAdmin && (
+                                                    <td className="py-4 px-4 text-center">
+                                                        {isSelf ? (
+                                                            <input
+                                                                type="checkbox"
+                                                                disabled
+                                                                className="rounded border-gray-200 text-gray-300 cursor-not-allowed opacity-40"
+                                                                title="Akun Anda sendiri tidak dapat dipilih untuk aksi massal demi keamanan"
+                                                            />
+                                                        ) : (
+                                                            <input
+                                                                type="checkbox"
+                                                                className="rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                                checked={selectedUserIds.includes(u.id)}
+                                                                onChange={() => toggleSelectUser(u.id)}
+                                                            />
                                                         )}
-                                                    </div>
+                                                    </td>
+                                                )}
+                                                <td className="py-4 px-6 font-mono font-medium text-gray-900">
+                                                    {u.username || '-'}
                                                 </td>
-                                            )}
-                                        </tr>
-                                    ))
+                                                <td className="py-4 px-6 font-bold text-gray-900 text-sm">
+                                                    {u.name}
+                                                    {isSelf && (
+                                                        <span className="ml-2 text-[10px] font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">
+                                                            Anda
+                                                        </span>
+                                                    )}
+                                                </td>
+                                                <td className="py-4 px-6 text-gray-500">
+                                                    {u.email || '-'}
+                                                </td>
+                                                <td className="py-4 px-6 text-center">
+                                                    <span
+                                                        className={`inline-block px-3 py-1 text-xs font-bold rounded-full border ${getRoleBadge(
+                                                            u.role
+                                                        )}`}
+                                                    >
+                                                        {u.role === 'Siswa' ? 'Santri' : u.role}
+                                                    </span>
+                                                </td>
+                                                <td className="py-4 px-6 text-center">
+                                                    <span
+                                                        className={`inline-block px-2.5 py-1 text-[11px] font-bold rounded-full border ${
+                                                            u.status === 'Aktif'
+                                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                                : 'bg-red-50 text-red-700 border-red-200'
+                                                        }`}
+                                                    >
+                                                        {u.status}
+                                                    </span>
+                                                </td>
+                                                {canManage && (
+                                                    <td className="py-4 px-6 text-right">
+                                                        <div className="flex justify-end space-x-2">
+                                                            <button
+                                                                onClick={() => openEditModal(u)}
+                                                                className="px-2.5 py-1.5 text-xs text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition font-medium"
+                                                                title="Edit Akun"
+                                                            >
+                                                                ✏️ Edit
+                                                            </button>
+                                                            {!isSelf && (
+                                                                <button
+                                                                    onClick={() => deleteUser(u.id, u.name)}
+                                                                    className="px-2.5 py-1.5 text-xs text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition font-medium"
+                                                                    title="Hapus Akun"
+                                                                >
+                                                                    🗑️ Hapus
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                )}
+                                            </tr>
+                                        );
+                                    })
                                 ) : (
                                     <tr>
-                                        <td colSpan={canManage ? 6 : 5} className="py-12 text-center text-gray-400">
+                                        <td colSpan={5 + (canManage ? 1 : 0) + (isAdmin ? 1 : 0)} className="py-12 text-center text-gray-400">
                                             <div className="flex flex-col items-center justify-center space-y-2">
                                                 <span className="text-4xl">👥</span>
                                                 <p className="text-sm font-medium text-gray-600">
@@ -520,6 +732,149 @@ export default function KelolaUser({ auth, users }) {
                                     className="px-4 py-2 text-xs font-bold text-white transition rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50"
                                 >
                                     {processing ? 'Menyimpan...' : 'Simpan Akun'}
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
+
+            {/* FLOATING BULK ACTION BAR (Khusus Admin) */}
+            {isAdmin && selectedUserIds.length > 0 && (
+                <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 bg-slate-900/95 backdrop-blur-md text-white border border-slate-700/80 rounded-2xl shadow-2xl px-5 py-3 flex flex-wrap items-center gap-3 animate-in fade-in slide-in-from-bottom-4 duration-200">
+                    <div className="flex items-center gap-2 pr-3 border-r border-slate-700">
+                        <span className="flex h-2.5 w-2.5 relative">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+                        </span>
+                        <span className="text-xs font-bold text-emerald-400 whitespace-nowrap">
+                            {selectedUserIds.length} Akun Terpilih
+                        </span>
+                    </div>
+
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            type="button"
+                            onClick={() => setIsBulkRoleModalOpen(true)}
+                            className="px-3 py-1.5 bg-purple-600 hover:bg-purple-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>👤</span> Ubah Peran
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleBulkUpdateStatus('Aktif')}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>✅</span> Set Aktif
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => handleBulkUpdateStatus('Non-Aktif')}
+                            className="px-3 py-1.5 bg-amber-600 hover:bg-amber-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>⏸️</span> Set Non-Aktif
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkResetPassword}
+                            className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                            title="Reset password terpilih menjadi 'sabira123'"
+                        >
+                            <span>🔑</span> Reset Password
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkDelete}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>🗑️</span> Hapus Akun
+                        </button>
+                        <button
+                            type="button"
+                            onClick={handleBulkExportCsv}
+                            className="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-xl text-xs font-semibold flex items-center gap-1.5 shadow-sm transition"
+                        >
+                            <span>📥</span> Export CSV
+                        </button>
+                        <button
+                            type="button"
+                            onClick={clearSelection}
+                            className="px-2.5 py-1.5 text-slate-400 hover:text-white text-xs font-medium transition"
+                            title="Batalkan Pilihan"
+                        >
+                            ✕ Batal
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* MODAL BULK UBAH PERAN */}
+            {isBulkRoleModalOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs animate-in fade-in duration-150">
+                    <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-gray-100">
+                        <div className="flex items-center gap-3 mb-4 pb-3 border-b border-gray-100">
+                            <span className="p-2.5 bg-purple-50 text-purple-700 rounded-xl text-xl">👤</span>
+                            <div>
+                                <h3 className="text-base font-bold text-gray-900">Ubah Peran (Role) Massal</h3>
+                                <p className="text-xs text-gray-500">
+                                    Memperbarui hak akses untuk <strong>{selectedUserIds.length}</strong> akun terpilih.
+                                </p>
+                            </div>
+                        </div>
+
+                        <form onSubmit={handleBulkUpdateRole} className="space-y-4">
+                            <div>
+                                <label className="block text-xs font-semibold text-gray-700 mb-2">
+                                    Pilih Peran Baru
+                                </label>
+                                <div className="space-y-2">
+                                    {[
+                                        { value: 'Admin', label: 'Admin (Akses Penuh Seluruh Sistem)', desc: 'Dapat mengelola santri, ustadz, user, dan setelan sistem.' },
+                                        { value: 'Ustadz', label: 'Ustadz (Guru & Pembimbing)', desc: 'Dapat menginput setoran santri dan melihat rekap.' },
+                                        { value: 'Siswa', label: 'Siswa / Santri', desc: 'Hanya dapat melihat capaian hafalan dan raport miliknya.' },
+                                    ].map((r) => (
+                                        <label
+                                            key={r.value}
+                                            className={`flex items-start p-3 border rounded-xl cursor-pointer transition ${
+                                                bulkTargetRole === r.value
+                                                    ? 'border-purple-500 bg-purple-50/50'
+                                                    : 'border-gray-200 hover:bg-gray-50'
+                                            }`}
+                                        >
+                                            <input
+                                                type="radio"
+                                                name="bulkRole"
+                                                value={r.value}
+                                                checked={bulkTargetRole === r.value}
+                                                onChange={(e) => setBulkTargetRole(e.target.value)}
+                                                className="mt-0.5 text-purple-600 focus:ring-purple-500 border-gray-300"
+                                            />
+                                            <div className="ml-3">
+                                                <span className="text-xs font-bold text-gray-900 block">
+                                                    {r.label}
+                                                </span>
+                                                <span className="text-[11px] text-gray-500 block mt-0.5">
+                                                    {r.desc}
+                                                </span>
+                                            </div>
+                                        </label>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-4 border-t border-gray-100">
+                                <button
+                                    type="button"
+                                    onClick={() => setIsBulkRoleModalOpen(false)}
+                                    className="px-4 py-2 text-xs font-semibold text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-xl transition"
+                                >
+                                    Batal
+                                </button>
+                                <button
+                                    type="submit"
+                                    className="px-5 py-2 text-xs font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-xl shadow-sm transition"
+                                >
+                                    Terapkan Peran Baru
                                 </button>
                             </div>
                         </form>
