@@ -75,35 +75,43 @@ class UserController extends Controller
     // Fungsi Sakti: Generate Akun Massal Otomatis
     public function generateAccounts()
     {
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
+        $defaultPasswordHash = Hash::make('sabira123');
+        $existingUsers = User::whereNotNull('username')->pluck('username')->flip()->toArray();
+
         // 1. Generate Akun untuk Siswa
         $siswas = Siswa::all();
         foreach ($siswas as $siswa) {
-            // firstOrCreate: Buat baru JIKA username (NIS) belum terdaftar di tabel users
-            User::firstOrCreate(
-                ['username' => $siswa->nis],
-                [
+            if (! isset($existingUsers[$siswa->nis])) {
+                User::create([
                     'name' => $siswa->nama,
+                    'username' => $siswa->nis,
                     'email' => $siswa->nis.'@sabira.local',
                     'role' => 'Siswa',
                     'status' => $siswa->status,
-                    'password' => Hash::make('sabira123'), // Password default
-                ]
-            );
+                    'password' => $defaultPasswordHash,
+                ]);
+                $existingUsers[$siswa->nis] = true;
+            }
         }
 
         // 2. Generate Akun untuk Ustadz (Hanya yang punya NIP)
         $ustadzs = Ustadz::whereNotNull('nip')->get();
         foreach ($ustadzs as $ustadz) {
-            User::firstOrCreate(
-                ['username' => $ustadz->nip],
-                [
+            if (! isset($existingUsers[$ustadz->nip])) {
+                User::create([
                     'name' => $ustadz->nama,
+                    'username' => $ustadz->nip,
                     'email' => $ustadz->nip.'@sabira.local',
                     'role' => 'Ustadz',
                     'status' => $ustadz->status,
-                    'password' => Hash::make('sabira123'), // Password default
-                ]
-            );
+                    'password' => $defaultPasswordHash,
+                ]);
+                $existingUsers[$ustadz->nip] = true;
+            }
         }
 
         return redirect()->back();

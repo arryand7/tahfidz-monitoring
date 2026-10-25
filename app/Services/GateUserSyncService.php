@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Ustadz;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class GateUserSyncService
 {
@@ -197,6 +198,11 @@ class GateUserSyncService
             ];
         }
 
+        // Tingkatkan batas waktu eksekusi agar sinkronisasi massal (ratusan pengguna) tidak timeout
+        if (function_exists('set_time_limit')) {
+            @set_time_limit(300);
+        }
+
         $dryRunData = $this->dryRun();
         $itemsByUuid = collect($dryRunData['items'])->keyBy('uuid');
 
@@ -207,9 +213,25 @@ class GateUserSyncService
         $adminCount = 0;
         $syncResultItems = [];
 
+        // Pre-compute hash password sekali di awal untuk performa kilat (mencegah timeout BcryptHasher)
+        $defaultPasswordHash = Hash::make('sabira123');
+
+        // Preload index data lokal untuk menghindari ribuan query N+1
+        $localUsersByUuid = User::whereNotNull('gate_user_uuid')->get()->keyBy('gate_user_uuid');
+        $localUsersByUsername = User::whereNotNull('username')->get()->keyBy('username');
+        $localUsersByEmail = User::whereNotNull('email')->get()->keyBy('email');
+        $existingSiswas = Siswa::all()->keyBy('nis');
+        $existingUstadzs = Ustadz::whereNotNull('nip')->get()->keyBy('nip');
+
         DB::transaction(function () use (
             $selectedUuids,
             $itemsByUuid,
+            $defaultPasswordHash,
+            &$localUsersByUuid,
+            &$localUsersByUsername,
+            &$localUsersByEmail,
+            &$existingSiswas,
+            &$existingUstadzs,
             &$createdCount,
             &$updatedCount,
             &$studentCount,
@@ -229,19 +251,35 @@ class GateUserSyncService
                 $role = $item['mapped_role'];
                 $status = $item['mapped_status'];
 
-                // 1. Temukan atau buat User di tabel users
+                // 1. Temukan atau buat User di tabel users via in-memory lookup
                 $user = null;
-                if (! empty($uuid)) {
-                    $user = User::where('gate_user_uuid', $uuid)->first();
-                }
-                if (! $user && ! empty($username)) {
-                    $user = User::where('username', $username)->first();
-                }
-                if (! $user && ! empty($email)) {
-                    $user = User::where('email', $email)->first();
+                if (! empty($uuid) && isset($localUsersByUuid[$uuid])) {
+                    $user = $localUsersByUuid[$uuid];
+                } elseif (! empty($username) && isset($localUsersByUsername[$username])) {
+                    $user = $localUsersByUsername[$username];
+                } elseif (! empty($email) && isset($localUsersByEmail[$email])) {
+                    $user = $localUsersByEmail[$email];
                 }
 
                 if ($user) {
+                    // Hindari error UNIQUE constraint jika email dipegang oleh akun lokal lama lain
+                    if (! empty($email) && isset($localUsersByEmail[$email]) && $localUsersByEmail[$email]->id !== $user->id) {
+                        $conflictEmailUser = $localUsersByEmail[$email];
+                        $fallbackEmail = "{$conflictEmailUser->username}_{$conflictEmailUser->id}@sabira.local";
+                        $conflictEmailUser->update(['email' => $fallbackEmail]);
+                        $localUsersByEmail[$fallbackEmail] = $conflictEmailUser;
+                        unset($localUsersByEmail[$email]);
+                    }
+
+                    // Hindari error UNIQUE constraint jika username dipegang oleh akun lokal lama lain
+                    if (! empty($username) && isset($localUsersByUsername[$username]) && $localUsersByUsername[$username]->id !== $user->id) {
+                        $conflictUsernameUser = $localUsersByUsername[$username];
+                        $fallbackUsername = "{$conflictUsernameUser->username}_{$conflictUsernameUser->id}";
+                        $conflictUsernameUser->update(['username' => $fallbackUsername]);
+                        $localUsersByUsername[$fallbackUsername] = $conflictUsernameUser;
+                        unset($localUsersByUsername[$username]);
+                    }
+
                     // Update user yang sudah ada
                     $user->update([
                         'name' => $name,
@@ -250,50 +288,101 @@ class GateUserSyncService
                         'role' => $role,
                         'status' => $status,
                         'gate_user_uuid' => $uuid,
+                        'sso_synced_at' => now(),
                     ]);
                     $updatedCount++;
                 } else {
-                    // Buat user baru dengan default password 'sabira123'
-                    $user = User::create([
-                        'name' => $name,
-                        'username' => $username,
-                        'email' => $email,
-                        'role' => $role,
-                        'status' => $status,
-                        'gate_user_uuid' => $uuid,
-                        'password' => Hash::make('sabira123'),
-                    ]);
-                    $createdCount++;
+                    // Cek jika ada user lain yang kebetulan memegang email atau username
+                    if (! empty($email) && isset($localUsersByEmail[$email])) {
+                        $user = $localUsersByEmail[$email];
+                        $user->update([
+                            'name' => $name,
+                            'username' => $username,
+                            'email' => $email,
+                            'role' => $role,
+                            'status' => $status,
+                            'gate_user_uuid' => $uuid,
+                            'sso_synced_at' => now(),
+                        ]);
+                        $updatedCount++;
+                    } elseif (! empty($username) && isset($localUsersByUsername[$username])) {
+                        $user = $localUsersByUsername[$username];
+                        $user->update([
+                            'name' => $name,
+                            'username' => $username,
+                            'email' => $email,
+                            'role' => $role,
+                            'status' => $status,
+                            'gate_user_uuid' => $uuid,
+                            'sso_synced_at' => now(),
+                        ]);
+                        $updatedCount++;
+                    } else {
+                        // Buat user baru dengan pre-computed password hash
+                        $user = User::create([
+                            'name' => $name,
+                            'username' => $username,
+                            'email' => $email,
+                            'role' => $role,
+                            'status' => $status,
+                            'gate_user_uuid' => $uuid,
+                            'password' => $defaultPasswordHash,
+                            'sso_synced_at' => now(),
+                        ]);
+                        $createdCount++;
+                    }
+                }
+
+                // Simpan ke in-memory map agar konsisten
+                if (! empty($uuid)) {
+                    $localUsersByUuid[$uuid] = $user;
+                }
+                if (! empty($username)) {
+                    $localUsersByUsername[$username] = $user;
+                }
+                if (! empty($email)) {
+                    $localUsersByEmail[$email] = $user;
                 }
 
                 // Hitung statistik berdasarkan role
                 if ($role === 'Siswa') {
                     $studentCount++;
-                    // Sinkronkan ke tabel siswas
                     $nis = $item['nis'] ?: $username;
                     if ($nis) {
-                        $existingSiswa = Siswa::where('nis', $nis)->first();
-                        Siswa::updateOrCreate(
-                            ['nis' => $nis],
-                            [
+                        $existingSiswa = $existingSiswas->get($nis);
+                        if ($existingSiswa) {
+                            $existingSiswa->update([
                                 'nama' => $name,
-                                'kelas' => $existingSiswa ? $existingSiswa->kelas : 'Umum',
                                 'status' => $status,
-                            ]
-                        );
+                            ]);
+                        } else {
+                            $newSiswa = Siswa::create([
+                                'nis' => $nis,
+                                'nama' => $name,
+                                'kelas' => 'Umum',
+                                'status' => $status,
+                            ]);
+                            $existingSiswas->put($nis, $newSiswa);
+                        }
                     }
                 } elseif ($role === 'Ustadz') {
                     $ustadzCount++;
-                    // Sinkronkan ke tabel ustadzs
                     $nip = $item['nip'] ?: $username;
                     if ($nip) {
-                        Ustadz::updateOrCreate(
-                            ['nip' => $nip],
-                            [
+                        $existingUstadz = $existingUstadzs->get($nip);
+                        if ($existingUstadz) {
+                            $existingUstadz->update([
                                 'nama' => $name,
                                 'status' => $status,
-                            ]
-                        );
+                            ]);
+                        } else {
+                            $newUstadz = Ustadz::create([
+                                'nip' => $nip,
+                                'nama' => $name,
+                                'status' => $status,
+                            ]);
+                            $existingUstadzs->put($nip, $newUstadz);
+                        }
                     }
                 } elseif ($role === 'Admin') {
                     $adminCount++;
@@ -324,5 +413,126 @@ class GateUserSyncService
             'ustadz_count' => $ustadzCount,
             'admin_count' => $adminCount,
         ];
+    }
+
+    /**
+     * Cari atau otomatis buatkan akun lokal saat login melalui Gate SSO (OAuth2 / OIDC).
+     * Menerapkan aturan peran:
+     * - student/siswa/santri => Siswa
+     * - admin/superadmin     => Admin
+     * - selain itu           => Ustadz
+     */
+    public function findOrProvisionFromOidc(array $claims): User
+    {
+        $sub = (string) ($claims['sub'] ?? '');
+        $email = $claims['email'] ?? null;
+        $gateType = $claims['type'] ?? $claims['user_type'] ?? null;
+        $name = $claims['name'] ?? 'Pengguna SSO';
+        $nis = $claims['nis'] ?? null;
+        $nip = $claims['nip'] ?? null;
+        $username = $claims['username'] ?? $nis ?? $nip ?? ($email ? strstr($email, '@', true) : "user_{$sub}");
+        $mappedRole = $this->mapRole($gateType);
+
+        // 1. Cari user yang sudah ada berdasarkan sub, uuid, username, atau email
+        $user = null;
+        if (! empty($sub)) {
+            $user = User::where('sso_sub', $sub)->first();
+        }
+        if (! $user && ! empty($claims['uuid'])) {
+            $user = User::where('gate_user_uuid', $claims['uuid'])->first();
+        }
+        if (! $user && ! empty($username)) {
+            $user = User::where('username', $username)->first();
+        }
+        if (! $user && ! empty($email)) {
+            $user = User::where('email', $email)->first();
+        }
+
+        if ($user) {
+            // Hindari konflik unique email jika email dipegang akun lain
+            if (! empty($email)) {
+                $conflictEmailUser = User::where('email', $email)->where('id', '!=', $user->id)->first();
+                if ($conflictEmailUser) {
+                    $conflictEmailUser->update(['email' => "{$conflictEmailUser->username}_{$conflictEmailUser->id}@sabira.local"]);
+                }
+            }
+
+            // Perbarui data identitas SSO
+            $user->forceFill([
+                'sso_sub' => $sub ?: $user->sso_sub,
+                'sso_synced_at' => now(),
+                'name' => $name ?: $user->name,
+            ]);
+
+            if (! empty($claims['uuid']) && empty($user->gate_user_uuid)) {
+                $user->gate_user_uuid = $claims['uuid'];
+            }
+
+            $user->save();
+        } else {
+            // 2. Buat akun baru otomatis (Auto-provisioning)
+            // Hindari tabrakan jika email sudah ada di akun lama
+            $conflictEmailUser = ! empty($email) ? User::where('email', $email)->first() : null;
+            $conflictUsernameUser = ! empty($username) ? User::where('username', $username)->first() : null;
+
+            if ($conflictEmailUser) {
+                $user = $conflictEmailUser;
+                $user->update([
+                    'name' => $name,
+                    'sso_sub' => $sub ?: $user->sso_sub,
+                    'sso_synced_at' => now(),
+                    'gate_user_uuid' => $claims['uuid'] ?? $user->gate_user_uuid,
+                ]);
+            } elseif ($conflictUsernameUser) {
+                $user = $conflictUsernameUser;
+                $user->update([
+                    'name' => $name,
+                    'email' => $email ?: $user->email,
+                    'sso_sub' => $sub ?: $user->sso_sub,
+                    'sso_synced_at' => now(),
+                    'gate_user_uuid' => $claims['uuid'] ?? $user->gate_user_uuid,
+                ]);
+            } else {
+                $user = User::create([
+                    'name' => $name,
+                    'username' => $username,
+                    'email' => $email ?: "{$username}@sabira.local",
+                    'password' => Hash::make(Str::random(32)),
+                    'role' => $mappedRole,
+                    'status' => 'Aktif',
+                    'gate_user_uuid' => $claims['uuid'] ?? null,
+                    'sso_sub' => $sub ?: null,
+                    'sso_synced_at' => now(),
+                ]);
+            }
+
+            // Sinkronkan ke tabel Siswa atau Ustadz sesuai role
+            if ($mappedRole === 'Siswa') {
+                $siswaNis = $nis ?: $username;
+                if ($siswaNis) {
+                    Siswa::firstOrCreate(
+                        ['nis' => $siswaNis],
+                        [
+                            'nama' => $name,
+                            'kelas' => 'Umum',
+                            'status' => 'Aktif',
+                        ]
+                    );
+                }
+            } elseif ($mappedRole === 'Ustadz') {
+                $ustadzNip = $nip ?: $username;
+                if ($ustadzNip) {
+                    Ustadz::firstOrCreate(
+                        ['nip' => $ustadzNip],
+                        [
+                            'nama' => $name,
+                            'status' => 'Aktif',
+                        ]
+                    );
+                }
+            }
+        }
+
+        return $user;
     }
 }

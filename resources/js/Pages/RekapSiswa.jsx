@@ -1,116 +1,276 @@
 import AuthenticatedLayout from '@/Layouts/AuthenticatedLayout';
+import TablePagination from '@/Components/TablePagination';
+import { exportToCsv } from '@/Utils/exportCsv';
 import { Head } from '@inertiajs/react';
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 
-export default function RekapSiswa({ auth, rekapSiswaData }) {
-    // State untuk fitur pencarian cepat
+export default function RekapSiswa({ auth, rekapSiswaData, isStudent, currentStudent }) {
     const [searchQuery, setSearchQuery] = useState('');
+    const [filterKelas, setFilterKelas] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [pageSize, setPageSize] = useState(15);
 
-    // HAPUS DATA DUMMY 'const rekapSiswa = [...]' DI SINI
+    // Ambil daftar kelas unik
+    const kelasList = useMemo(() => {
+        const set = new Set();
+        rekapSiswaData.forEach((s) => {
+            if (s.kelas) set.add(s.kelas);
+        });
+        return Array.from(set).sort();
+    }, [rekapSiswaData]);
 
-    // Logika Pencarian menggunakan rekapSiswaData dari database
-    const filteredSiswa = rekapSiswaData.filter(siswa =>
-        siswa.nama.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        siswa.nis.includes(searchQuery)
-    );
+    // Filter Logic
+    const filteredSiswa = useMemo(() => {
+        return rekapSiswaData.filter((siswa) => {
+            const query = searchQuery.toLowerCase().trim();
+            const matchSearch =
+                !query ||
+                siswa.nama?.toLowerCase().includes(query) ||
+                siswa.nis?.toLowerCase().includes(query);
+
+            const matchKelas = !filterKelas || siswa.kelas === filterKelas;
+
+            return matchSearch && matchKelas;
+        });
+    }, [rekapSiswaData, searchQuery, filterKelas]);
+
+    // Pagination
+    const paginatedSiswa = useMemo(() => {
+        const start = (currentPage - 1) * pageSize;
+        return filteredSiswa.slice(start, start + pageSize);
+    }, [filteredSiswa, currentPage, pageSize]);
+
+    // Ekspor CSV dari tampilan aktif
+    const handleExportActiveCsv = () => {
+        const columns = [
+            { label: 'NIS', key: 'nis' },
+            { label: 'Nama Santri', key: 'nama' },
+            { label: 'Kelas', key: 'kelas' },
+            { label: 'Total Hafalan Baru', key: 'totalHafalan' },
+            { label: 'Total Murojaah', key: 'totalMurojaah' },
+        ];
+        exportToCsv(`Rekap_Akumulasi_Santri_${filterKelas || 'Semua'}`, columns, filteredSiswa);
+    };
 
     return (
-        <AuthenticatedLayout user={auth.user} header="Direktori Laporan & Cetak Rekap">
-            <Head title="Rekap Siswa" />
+        <AuthenticatedLayout
+            user={auth.user}
+            header={isStudent ? 'Rekap & Progress Hafalan Saya' : 'Rekap Akumulasi Santri'}
+        >
+            <Head title={isStudent ? 'Progress Hafalan' : 'Rekap Siswa'} />
 
-            <div className="space-y-6">
-
-                {/* HEADER AKSI MASSAL */}
-                <div className="flex flex-col items-center justify-between p-6 bg-white border border-gray-100 shadow-sm md:flex-row rounded-xl">
-                    <div>
-                        <h3 className="text-lg font-medium text-gray-900">Cetak Laporan Keseluruhan</h3>
-                        <p className="text-sm text-gray-500">Ekspor rekap setoran seluruh siswa ke dalam format dokumen.</p>
+            <div className="max-w-7xl mx-auto space-y-6">
+                {/* Banner & Aksi Massal */}
+                {isStudent ? (
+                    <div className="bg-gradient-to-r from-emerald-600 to-teal-700 text-white p-6 rounded-2xl shadow-md flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                        <div>
+                            <div className="flex items-center gap-2 mb-1">
+                                <span className="text-2xl">🎓</span>
+                                <h3 className="text-lg font-bold">
+                                    Laporan Hafalan: {currentStudent?.nama || auth.user.name}
+                                </h3>
+                            </div>
+                            <p className="text-xs text-emerald-100">
+                                NIS: {currentStudent?.nis || '-'} • Kelas: {currentStudent?.kelas || '-'}
+                            </p>
+                        </div>
+                        {currentStudent && (
+                            <div className="flex items-center gap-2.5">
+                                <a
+                                    href={route('rekap.siswa.pdf.single', currentStudent.id)}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+                                >
+                                    <span>📄</span> Unduh PDF Raport
+                                </a>
+                                <a
+                                    href={route('rekap.siswa.csv.single', currentStudent.id)}
+                                    className="px-4 py-2 bg-white text-emerald-800 hover:bg-emerald-50 rounded-xl text-xs font-bold shadow-sm transition flex items-center gap-1.5"
+                                >
+                                    <span>📊</span> Unduh CSV
+                                </a>
+                            </div>
+                        )}
                     </div>
-                    <div className="flex mt-4 space-x-3 md:mt-0">
-                        <a
-                            href={route('rekap.siswa.pdf')}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center px-4 py-2 text-sm font-medium text-white transition-colors bg-red-500 rounded-lg shadow-sm hover:bg-red-600"
-                        >
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            Cetak Semua (PDF)
-                        </a>
+                ) : (
+                    <div className="flex flex-col md:flex-row items-center justify-between p-6 bg-white border border-gray-200/80 shadow-sm rounded-2xl gap-4">
+                        <div>
+                            <h3 className="text-base font-bold text-gray-900">
+                                Ekspor & Cetak Rekap Lengkap Seluruh Santri
+                            </h3>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                Unduh rekapitulasi data setoran seluruh santri dalam format dokumen cetak resmi PDF atau spreadsheet CSV.
+                            </p>
+                        </div>
+                        <div className="flex items-center space-x-2.5 self-end md:self-center">
+                            <a
+                                href={route('rekap.siswa.pdf')}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center px-4 py-2 text-xs font-semibold text-white transition-all bg-red-600 hover:bg-red-700 rounded-xl shadow-xs"
+                            >
+                                <span className="mr-1.5">📄</span> Cetak Semua (PDF)
+                            </a>
+                            <a
+                                href={route('rekap.siswa.csv')}
+                                className="flex items-center px-4 py-2 text-xs font-semibold text-white transition-all bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-xs"
+                            >
+                                <span className="mr-1.5">📊</span> Ekspor Semua (CSV)
+                            </a>
+                        </div>
+                    </div>
+                )}
 
-                        {/* Tombol CSV */}
-                        <a
-                            href={route('rekap.siswa.csv')}
-                            className="flex items-center px-4 py-2 text-sm font-medium text-white transition-colors rounded-lg shadow-sm bg-emerald-600 hover:bg-emerald-700"
-                        >
-                            <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
-                            Export Semua (CSV)
-                        </a>
+                {/* Filter & Toolbar */}
+                <div className="p-5 bg-white border border-gray-200/80 shadow-sm rounded-2xl space-y-4">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 flex-1">
+                            {/* Search */}
+                            <div className="relative w-full sm:w-80">
+                                <span className="absolute inset-y-0 left-0 flex items-center pl-3 text-gray-400">
+                                    🔎
+                                </span>
+                                <input
+                                    type="text"
+                                    placeholder="Cari nama santri atau NIS..."
+                                    value={searchQuery}
+                                    onChange={(e) => {
+                                        setSearchQuery(e.target.value);
+                                        setCurrentPage(1);
+                                    }}
+                                    className="w-full pl-9 pr-8 text-xs py-2 border-gray-300 rounded-xl focus:ring-emerald-500 focus:border-emerald-500"
+                                />
+                                {searchQuery && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setSearchQuery('')}
+                                        className="absolute inset-y-0 right-0 pr-3 flex items-center text-xs text-gray-400 hover:text-gray-600"
+                                    >
+                                        ✕
+                                    </button>
+                                )}
+                            </div>
+
+                            {/* Filter Kelas (jika bukan siswa) */}
+                            {!isStudent && (
+                                <div className="w-full sm:w-56">
+                                    <select
+                                        value={filterKelas}
+                                        onChange={(e) => {
+                                            setFilterKelas(e.target.value);
+                                            setCurrentPage(1);
+                                        }}
+                                        className="w-full text-xs py-2 border-gray-300 rounded-xl focus:ring-emerald-500 focus:border-emerald-500"
+                                    >
+                                        <option value="">-- Semua Kelas --</option>
+                                        {kelasList.map((k) => (
+                                            <option key={k} value={k}>
+                                                Kelas: {k}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                            {(searchQuery || filterKelas) && (
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        setFilterKelas('');
+                                        setCurrentPage(1);
+                                    }}
+                                    className="text-xs text-red-600 hover:bg-red-50 px-3 py-1.5 rounded-lg transition font-medium"
+                                >
+                                    ✕ Reset
+                                </button>
+                            )}
+                            <button
+                                type="button"
+                                onClick={handleExportActiveCsv}
+                                className="px-3.5 py-2 text-xs font-semibold bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl transition flex items-center gap-1.5"
+                            >
+                                <span>📥</span> Unduh Ringkasan
+                            </button>
+                        </div>
                     </div>
                 </div>
 
-                {/* TABEL DIREKTORI SISWA */}
-                <div className="overflow-hidden bg-white border border-gray-100 shadow-sm rounded-xl">
-                    {/* Header Tabel & Pencarian */}
-                    <div className="flex flex-col items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50 md:flex-row">
-                        <h3 className="mb-4 text-lg font-medium text-gray-900 md:mb-0">Daftar Rekap Individu</h3>
-                        <div className="relative w-full md:w-72">
-                            <div className="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-                                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                            </div>
-                            <input
-                                type="text"
-                                placeholder="Cari Nama atau NIS..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="w-full pl-10 text-sm border-gray-300 rounded-lg shadow-sm focus:border-emerald-500 focus:ring-emerald-500"
-                            />
+                {/* TABEL DATA REKAP SISWA */}
+                <div className="overflow-hidden bg-white border border-gray-200/80 shadow-sm rounded-2xl">
+                    <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 bg-gray-50/70">
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-sm font-bold text-gray-800">
+                                {isStudent ? 'Data Diri & Akumulasi Santri' : 'Daftar Santri & Total Setoran'}
+                            </h3>
+                            <span className="px-2.5 py-0.5 text-xs font-bold rounded-full bg-emerald-100 text-emerald-800">
+                                {filteredSiswa.length} Santri
+                            </span>
                         </div>
                     </div>
 
                     <div className="overflow-x-auto">
-                        <table className="w-full text-sm text-left text-gray-500">
-                            <thead className="text-xs text-gray-700 uppercase bg-white border-b border-gray-100">
+                        <table className="w-full text-left border-collapse text-xs">
+                            <thead className="bg-gray-50 text-gray-600 uppercase tracking-wider font-semibold border-b border-gray-200">
                                 <tr>
-                                    <th className="px-6 py-3">NIS</th>
-                                    <th className="px-6 py-3">Nama Siswa</th>
-                                    <th className="px-6 py-3">Kelas</th>
-                                    <th className="px-6 py-3 text-center">Total Setoran<br/><span className="text-[10px] text-gray-400 font-normal">(Hafalan / Murojaah)</span></th>
-                                    <th className="px-6 py-3 text-right">Aksi Cetak</th>
+                                    <th className="py-3 px-6">NIS</th>
+                                    <th className="py-3 px-6">Nama Lengkap</th>
+                                    <th className="py-3 px-6">Kelas</th>
+                                    <th className="py-3 px-6 text-center">Akumulasi Setoran</th>
+                                    <th className="py-3 px-6 text-right">Aksi Dokumen</th>
                                 </tr>
                             </thead>
-                            <tbody>
-                                {filteredSiswa.length > 0 ? (
-                                    filteredSiswa.map((siswa) => (
-                                        <tr key={siswa.id} className="transition-colors bg-white border-b hover:bg-gray-50">
-                                            <td className="px-6 py-4 font-medium text-gray-900 whitespace-nowrap">{siswa.nis}</td>
-                                            <td className="px-6 py-4 font-semibold text-emerald-700">{siswa.nama}</td>
-                                            <td className="px-6 py-4">{siswa.kelas}</td>
-                                            <td className="px-6 py-4 text-center">
-                                                <div className="flex items-center justify-center space-x-2">
-                                                    <span className="px-2 py-1 text-xs font-medium rounded bg-emerald-50 text-emerald-700" title="Hafalan">H: {siswa.totalHafalan}</span>
-                                                    <span className="px-2 py-1 text-xs font-medium text-blue-700 rounded bg-blue-50" title="Murojaah">M: {siswa.totalMurojaah}</span>
+                            <tbody className="divide-y divide-gray-100">
+                                {paginatedSiswa.length > 0 ? (
+                                    paginatedSiswa.map((siswa) => (
+                                        <tr key={siswa.id} className="hover:bg-emerald-50/40 transition-colors">
+                                            <td className="py-4 px-6 font-mono font-medium text-gray-900">
+                                                {siswa.nis}
+                                            </td>
+                                            <td className="py-4 px-6 font-bold text-emerald-800 text-sm">
+                                                {siswa.nama}
+                                            </td>
+                                            <td className="py-4 px-6">
+                                                <span className="px-2.5 py-1 bg-gray-100 text-gray-700 rounded-md font-semibold text-[11px]">
+                                                    {siswa.kelas || '-'}
+                                                </span>
+                                            </td>
+                                            <td className="py-4 px-6 text-center">
+                                                <div className="inline-flex items-center gap-2">
+                                                    <span
+                                                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200"
+                                                        title="Total Hafalan Baru"
+                                                    >
+                                                        📗 Hafalan: {siswa.totalHafalan}
+                                                    </span>
+                                                    <span
+                                                        className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-blue-50 text-blue-700 border border-blue-200"
+                                                        title="Total Murojaah"
+                                                    >
+                                                        🔄 Murojaah: {siswa.totalMurojaah}
+                                                    </span>
                                                 </div>
                                             </td>
-                                            <td className="px-6 py-4 text-right">
-                                                <div className="flex justify-end space-x-2">
-                                                    {/* Tombol PDF Individual */}
+                                            <td className="py-4 px-6 text-right">
+                                                <div className="flex items-center justify-end space-x-2">
                                                     <a
                                                         href={route('rekap.siswa.pdf.single', siswa.id)}
                                                         target="_blank"
                                                         rel="noopener noreferrer"
-                                                        className="block p-2 text-red-600 transition-colors rounded bg-red-50 hover:bg-red-100"
-                                                        title="Cetak PDF Siswa"
+                                                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-700 bg-red-50 hover:bg-red-100 border border-red-200 rounded-lg transition"
+                                                        title="Cetak PDF Individu"
                                                     >
-                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+                                                        <span>📄</span> PDF
                                                     </a>
-
-                                                    {/* Tombol CSV Individual */}
                                                     <a
                                                         href={route('rekap.siswa.csv.single', siswa.id)}
-                                                        className="block p-2 transition-colors rounded text-emerald-600 bg-emerald-50 hover:bg-emerald-100"
-                                                        title="Export CSV Siswa"
+                                                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition"
+                                                        title="Unduh CSV Individu"
                                                     >
-                                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+                                                        <span>📊</span> CSV
                                                     </a>
                                                 </div>
                                             </td>
@@ -118,16 +278,29 @@ export default function RekapSiswa({ auth, rekapSiswaData }) {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan="5" className="px-6 py-12 text-center text-gray-500">
-                                            Siswa tidak ditemukan.
+                                        <td colSpan="5" className="py-12 text-center text-gray-400">
+                                            <div className="flex flex-col items-center justify-center space-y-2">
+                                                <span className="text-4xl">🎓</span>
+                                                <p className="text-sm font-medium text-gray-600">
+                                                    Tidak ada data santri yang cocok.
+                                                </p>
+                                            </div>
                                         </td>
                                     </tr>
                                 )}
                             </tbody>
                         </table>
                     </div>
-                </div>
 
+                    <TablePagination
+                        currentPage={currentPage}
+                        totalItems={filteredSiswa.length}
+                        pageSize={pageSize}
+                        onPageChange={setCurrentPage}
+                        onPageSizeChange={setPageSize}
+                        pageSizeOptions={[10, 15, 25, 50]}
+                    />
+                </div>
             </div>
         </AuthenticatedLayout>
     );

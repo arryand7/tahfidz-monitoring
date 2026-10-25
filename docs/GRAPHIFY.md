@@ -67,6 +67,8 @@ erDiagram
     USERS {
         bigint id PK
         string gate_user_uuid UK "UUID pengguna terpusat dari Gate SSO"
+        string sso_sub UK "Subject ID dari OIDC UserInfo"
+        timestamp sso_synced_at "Waktu sinkronisasi terakhir"
         string name
         string username UK "Digunakan untuk login (NIS / NIP / admin)"
         string email UK
@@ -75,6 +77,23 @@ erDiagram
         string role "Admin | Ustadz | Siswa"
         string status "Aktif | Non-Aktif"
         string remember_token
+        timestamp created_at
+        timestamp updated_at
+    }
+
+    SSO_SETTINGS {
+        bigint id PK
+        string base_url "URL Gate SSO (misal: https://gate.sabira-iibs.id)"
+        string client_id "OAuth Client ID"
+        text client_secret "OAuth Client Secret"
+        string redirect_uri "OAuth Redirect Callback URI"
+        string scopes "Scopes OIDC (openid profile email roles)"
+        string local_path "Direktori lokal untuk dev fallback"
+        string driver_mode "auto | remote_only | local_only"
+        boolean is_enabled "Status aktif tombol SSO di Login"
+        timestamp last_tested_at
+        string last_test_status
+        text last_test_message
         timestamp created_at
         timestamp updated_at
     }
@@ -362,3 +381,84 @@ stateDiagram-v2
     
     Authenticated --> Guest: Klik Logout / Sesi Expire (120 Menit)
 ```
+
+---
+
+## 9. Alur Autentikasi OAuth2 / OIDC Gate SSO (*Single Sign-On Flow*)
+
+Pengguna dapat masuk ke Sabira Tahfidz langsung menggunakan akun Gate SSO terpusat (`gate.sabira-iibs.id`) tanpa mengetikkan username & password lokal:
+
+```mermaid
+sequenceDiagram
+    autonumber
+    actor User as Pengguna / Santri
+    participant Browser as Browser Client
+    participant App as Sabira Tahfidz (/sso)
+    participant Gate as Gate SSO (gate.sabira-iibs.id)
+    participant DB as Basis Data Lokal
+
+    User->>Browser: Klik tombol "Masuk dengan Gate SSO"
+    Browser->>App: GET /sso/login
+    App->>App: Generate random state & simpan di session
+    App-->>Browser: Redirect 302 ke Gate SSO /oauth/authorize
+    Browser->>Gate: GET /oauth/authorize?client_id=...&redirect_uri=...&scope=openid profile email roles&state=...
+    Gate->>User: Tampilkan formulir otentikasi Gate SSO
+    User->>Gate: Masukkan kredensial & konfirmasi izin
+    Gate-->>Browser: Redirect 302 ke /sso/callback?code=AUTH_CODE&state=...
+    Browser->>App: GET /sso/callback?code=AUTH_CODE&state=...
+    App->>App: Validasi kecocokan state (Anti-CSRF)
+    App->>Gate: POST /oauth/token (grant_type=authorization_code)
+    Gate-->>App: Return JSON { access_token, expires_in, token_type }
+    App->>Gate: GET /oauth/userinfo (Bearer access_token)
+    Gate-->>App: Return JSON { sub, name, email, type, nis, nip, roles }
+    App->>DB: Query User berdasarkan sso_sub / gate_user_uuid / username / email
+    alt User belum terdaftar
+        App->>DB: Auto-provision User baru (Role sesuai type Gate)
+        alt type == student/siswa
+            App->>DB: Auto-create data Siswa (NIS)
+        else type == teacher/staff/lainnya
+            App->>DB: Auto-create data Ustadz (NIP)
+        end
+    else User sudah ada
+        App->>DB: Update sso_sub, sso_synced_at, & nama
+    end
+    App->>App: Auth::login($user, remember=true)
+    App-->>Browser: Redirect 302 ke /dashboard
+    Browser->>User: Masuk ke halaman Dashboard sesuai Role
+```
+
+---
+
+## 10. Arsitektur Sinkronisasi Gate SSO Dinamis (*Dynamic Configuration Architecture*)
+
+Sistem dirancang agar dapat di-deploy ke server mana pun dan mendukung perubahan URL Gate SSO tanpa perlu redeploy kode maupun manipulasi berkas `.env` server secara manual:
+
+```mermaid
+graph TD
+    subgraph AdminUI ["Antarmuka Administrator (/sync-sso)"]
+        FormConfig["Form Pengaturan Dinamis:<br/>- Base URL (https://gate...)<br/>- Client ID & Secret<br/>- Redirect URI<br/>- Driver Mode (auto / remote_only / local_only)<br/>- Toggle SSO Login Button"]
+        BtnTest["Tombol 'Test Koneksi' (Live Latency & Health Check)"]
+        BtnSync["Tombol 'Terapkan Sinkronisasi' (Pilih Semua / Parsial)"]
+    end
+
+    subgraph ConfigManager ["SsoSetting Model & GateProvisioningClient"]
+        DBConfig[("Tabel: sso_settings")]
+        EnvFallback[".env / config('services.gate') (Fallback)"]
+        Resolver{"Pengaturan di Database?"}
+        DBConfig -->|Ada| Resolver
+        EnvFallback -->|Default| Resolver
+    end
+
+    subgraph GateNetwork ["Jaringan Gate SSO (Cloud / On-Premise)"]
+        RemoteOAuth["Gate SSO OAuth2: /oauth/authorize & /oauth/token"]
+        RemoteProv["Gate SSO Provisioning API: /api/provisioning/users"]
+        LocalSQLite["(Dev Only) Local SQLite Fallback"]
+    end
+
+    FormConfig -->|POST /sync-sso/settings| DBConfig
+    BtnTest -->|POST /sync-sso/test-connection| Resolver
+    Resolver -->|Mode: remote_only / auto| RemoteProv
+    Resolver -.->|Mode: local_only / auto fallback| LocalSQLite
+    BtnSync -->|POST /sync-sso/apply| DBConfig
+```
+

@@ -11,31 +11,61 @@ class RekapSiswaController extends Controller
 {
     public function index()
     {
-        $rekapSiswa = Siswa::withCount([
+        $user = auth()->user();
+        $isStudent = $user && $user->role === 'Siswa';
+        $linkedSiswa = $isStudent ? $user->getLinkedSiswa() : null;
+
+        $query = Siswa::withCount([
             'setorans as total_hafalan' => function ($query) {
                 $query->where('jenis', 'Hafalan');
             },
             'setorans as total_murojaah' => function ($query) {
                 $query->where('jenis', 'Murojaah');
             },
-        ])->orderBy('nama', 'asc')->get()->map(function ($siswa) {
+        ]);
+
+        if ($isStudent) {
+            $query->where('id', $linkedSiswa ? $linkedSiswa->id : 0);
+        }
+
+        $rekapSiswa = $query->orderBy('nama', 'asc')->get()->map(function ($siswa) {
             return [
-                'id' => $siswa->id, 'nis' => $siswa->nis, 'nama' => $siswa->nama,
-                'kelas' => $siswa->kelas, 'totalHafalan' => $siswa->total_hafalan, 'totalMurojaah' => $siswa->total_murojaah,
+                'id' => $siswa->id,
+                'nis' => $siswa->nis,
+                'nama' => $siswa->nama,
+                'kelas' => $siswa->kelas,
+                'status' => $siswa->status,
+                'totalHafalan' => $siswa->total_hafalan,
+                'totalMurojaah' => $siswa->total_murojaah,
             ];
         });
 
-        return Inertia::render('RekapSiswa', ['rekapSiswaData' => $rekapSiswa]);
+        return Inertia::render('RekapSiswa', [
+            'rekapSiswaData' => $rekapSiswa,
+            'isStudent' => $isStudent,
+            'currentStudent' => $linkedSiswa,
+        ]);
     }
 
     // --- FUNGSI EXPORT CSV (SATU SHEET PANJANG) ---
     public function exportCsvAll()
     {
-        $setorans = Setoran::with(['siswa', 'ustadz'])->orderBy('siswa_id')->orderBy('tanggal', 'desc')->get();
+        $user = auth()->user();
+        $isStudent = $user && $user->role === 'Siswa';
+        $linkedSiswa = $isStudent ? $user->getLinkedSiswa() : null;
+
+        $query = Setoran::with(['siswa', 'ustadz'])->orderBy('siswa_id')->orderBy('tanggal', 'desc');
+
+        if ($isStudent) {
+            $query->where('siswa_id', $linkedSiswa ? $linkedSiswa->id : 0);
+        }
+
+        $setorans = $query->get();
+        $filename = $isStudent ? 'Rekap_Setoran_'.($linkedSiswa?->nis ?? 'Siswa').'.csv' : 'Master_Rekap_Semua_Siswa.csv';
 
         $headers = [
             'Content-type' => 'text/csv',
-            'Content-Disposition' => 'attachment; filename=Master_Rekap_Semua_Siswa.csv',
+            'Content-Disposition' => "attachment; filename={$filename}",
             'Pragma' => 'no-cache',
             'Cache-Control' => 'must-revalidate, post-check=0, pre-check=0',
             'Expires' => '0',
@@ -43,10 +73,8 @@ class RekapSiswaController extends Controller
 
         $callback = function () use ($setorans) {
             $file = fopen('php://output', 'w');
-            // Header Kolom CSV
             fputcsv($file, ['NIS', 'Nama Siswa', 'Kelas', 'Tanggal', 'Jenis', 'Surah', 'Ayat', 'Nilai', 'Pembimbing', 'Catatan']);
 
-            // Isi Baris CSV
             foreach ($setorans as $row) {
                 fputcsv($file, [
                     $row->siswa?->nis ?? '-', $row->siswa?->nama ?? '-', $row->siswa?->kelas ?? '-',
@@ -64,21 +92,37 @@ class RekapSiswaController extends Controller
     // --- FUNGSI EXPORT PDF (TERPISAH HALAMAN PER SISWA) ---
     public function exportPdfAll()
     {
-        // Ambil data siswa yang memiliki setoran, beserta relasinya
-        $siswas = Siswa::whereHas('setorans')->with(['setorans' => function ($query) {
-            $query->orderBy('tanggal', 'desc');
-        }, 'setorans.ustadz'])->get();
+        $user = auth()->user();
+        $isStudent = $user && $user->role === 'Siswa';
+        $linkedSiswa = $isStudent ? $user->getLinkedSiswa() : null;
 
-        // Render ke View Blade lalu jadikan PDF
+        $query = Siswa::whereHas('setorans')->with(['setorans' => function ($q) {
+            $q->orderBy('tanggal', 'desc');
+        }, 'setorans.ustadz']);
+
+        if ($isStudent) {
+            $query->where('id', $linkedSiswa ? $linkedSiswa->id : 0);
+        }
+
+        $siswas = $query->get();
+        $filename = $isStudent ? 'Rekap_Lengkap_'.($linkedSiswa?->nis ?? 'Siswa').'.pdf' : 'Rekap_Lengkap_Setoran_Siswa.pdf';
+
         $pdf = Pdf::loadView('pdf.rekap_semua', compact('siswas'));
 
-        // Download file
-        return $pdf->stream('Rekap_Lengkap_Setoran_Siswa.pdf');
+        return $pdf->stream($filename);
     }
 
     // --- FUNGSI EXPORT CSV (SATU SISWA) ---
     public function exportCsvSingle($id)
     {
+        $user = auth()->user();
+        if ($user && $user->role === 'Siswa') {
+            $linkedSiswa = $user->getLinkedSiswa();
+            if (! $linkedSiswa || $linkedSiswa->id != $id) {
+                abort(403, 'Akses ditolak. Anda hanya berhak mengunduh rekap setoran data Anda sendiri.');
+            }
+        }
+
         $siswa = Siswa::findOrFail($id);
         $setorans = Setoran::with('ustadz')->where('siswa_id', $id)->orderBy('tanggal', 'desc')->get();
 
@@ -111,14 +155,19 @@ class RekapSiswaController extends Controller
     // --- FUNGSI EXPORT PDF (SATU SISWA) ---
     public function exportPdfSingle($id)
     {
+        $user = auth()->user();
+        if ($user && $user->role === 'Siswa') {
+            $linkedSiswa = $user->getLinkedSiswa();
+            if (! $linkedSiswa || $linkedSiswa->id != $id) {
+                abort(403, 'Akses ditolak. Anda hanya berhak mengunduh rekap setoran data Anda sendiri.');
+            }
+        }
+
         $siswa = Siswa::with(['setorans' => function ($query) {
             $query->orderBy('tanggal', 'desc');
         }, 'setorans.ustadz'])->findOrFail($id);
 
-        // Trik cerdas: Bungkus 1 siswa ini ke dalam Collection agar bisa didaur ulang
-        // oleh file Blade 'rekap_semua' yang menggunakan @foreach($siswas as $siswa)
         $siswas = collect([$siswa]);
-
         $pdf = Pdf::loadView('pdf.rekap_semua', compact('siswas'));
 
         return $pdf->stream("Rekap_Setoran_{$siswa->nis}_{$siswa->nama}.pdf");

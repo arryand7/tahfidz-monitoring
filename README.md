@@ -42,10 +42,15 @@
   - Pembuatan akun otomatis satu kali klik untuk semua santri (username menggunakan NIS) dan ustadz (username menggunakan NIP).
   - Manajemen wewenang pengguna (*Admin*, *Ustadz*, *Siswa*).
 - 🔄 **Sinkronisasi Pengguna Terpusat (Gate SSO)**:
-  - Integrasi dua arah dengan Gate SSO (`gate.sabira-iibs.id` dan offline/local database SQLite).
+  - Integrasi dua arah dengan Gate SSO (`gate.sabira-iibs.id` dan cadangan offline SQLite).
   - Mekanisme **Dry-Run (Pratinjau)** sebelum eksekusi untuk melihat klasifikasi user (Baru, Perlu Update, Sudah Sinkron).
   - Fitur **Pilih Semua / Parsial (Checkbox Selection)** untuk memilih user mana saja yang akan dimasukkan ke aplikasi.
   - Aturan pemetaan cerdas: *student/siswa/santri* ➔ **Siswa** (sinkron ke tabel `siswas`), *admin* ➔ **Admin**, *teacher/staff/lainnya* ➔ **Ustadz** (sinkron ke tabel `ustadzs`).
+  - **Pengaturan Dinamis di Web UI**: Admin dapat mengganti URL Gate SSO, Client ID, dan Secret kapan saja dari panel `/sync-sso` tanpa perlu redeploy aplikasi. Dilengkapi tombol **Test Koneksi** live untuk menguji latensi dan status HTTP endpoint.
+- 🔑 **Login dengan Gate SSO (OAuth2 / OIDC)**:
+  - Tersedia tombol **"Masuk dengan Gate SSO"** di halaman login (`/login`).
+  - Alur otentikasi standar OAuth2 Authorization Code Grant (`/oauth/authorize`, `/oauth/token`, `/oauth/userinfo`).
+  - Auto-provisioning otomatis: Santri dan Ustadz baru yang login via SSO otomatis dibuatkan akun lokal beserta data profilnya sesuai role.
 - 🛡️ **Sistem Keamanan & Validasi**:
   - Otentikasi berbasis username & kata sandi dengan proteksi *Rate Limiting* (anti-bruteforce).
   - Role-Based Access Control (RBAC) pada level routing dan antarmuka pengguna.
@@ -124,6 +129,29 @@ Untuk pengembangan frontend aktif dengan *hot-module-replacement (HMR)*:
 ```bash
 npm run dev
 ```
+
+---
+
+## 🌐 Panduan Konfigurasi Dinamis & Deployment Gate SSO
+
+Aplikasi **Sabira Tahfidz** mendukung dua mode integrasi Gate SSO yang fleksibel:
+
+### 1. Mode Lokal (*Development Fallback*)
+- Saat pengembangan di laptop/lokal, jika direktori `/Users/ryand/Documents/LARAVEL/sabira/gate-sso` ada, sistem secara otomatis dapat membaca database SQLite lokal Gate SSO sebagai cadangan.
+
+### 2. Mode Production (*Setelah Aplikasi Dideploy*)
+Saat aplikasi dideploy ke server VPS/Cloud publik, komunikasi berjalan penuh melalui **Remote REST API & OAuth2**:
+1. Masuk sebagai **Admin** ke menu **Sinkronisasi Gate SSO** (`/sync-sso`).
+2. Klik tombol **`⚙️ Pengaturan Koneksi`**.
+3. Masukkan konfigurasi:
+   - **URL Gate SSO (Base URL)**: `https://gate.sabira-iibs.id` (atau URL baru jika berubah).
+   - **OAuth Client ID**: Client ID yang didaftarkan di Gate SSO.
+   - **OAuth Client Secret**: Client Secret dari Gate SSO.
+   - **OAuth Redirect URI**: `https://domain-anda.com/sso/callback` (daftarkan pula URI ini di dashboard Gate SSO).
+   - **Mode Driver**: Pilih **`Hanya Remote API`** (agar server production tidak mencari database lokal).
+   - **Aktifkan Login SSO**: Centang agar tombol **"Masuk dengan Gate SSO"** aktif di halaman login.
+4. Klik **`🧪 Test Koneksi`** untuk memverifikasi keterhubungan server secara live (menampilkan latensi dalam milidetik dan status HTTP).
+5. Klik **`💾 Simpan Pengaturan`**. Pengaturan tersimpan langsung ke database (`sso_settings`), sehingga **jika URL Gate SSO di kemudian hari berubah, Anda cukup mengubahnya dari UI tanpa perlu redeploy atau edit file server!**
 
 ---
 

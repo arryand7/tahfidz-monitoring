@@ -6,6 +6,7 @@ use App\Http\Controllers\MasterQuranController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RekapSetoranController;
 use App\Http\Controllers\RekapSiswaController;
+use App\Http\Controllers\RolePermissionController;
 use App\Http\Controllers\SetoranController;
 use App\Http\Controllers\SiswaController;
 use App\Http\Controllers\UserController;
@@ -23,81 +24,81 @@ Route::get('/', function () {
     ]);
 });
 
-Route::get('/dashboard', [DashboardController::class, 'index'])
-    ->middleware(['auth', 'verified'])
-    ->name('dashboard');
-
-Route::get('/input-setoran', [SetoranController::class, 'create'])
-    ->middleware(['auth', 'verified'])
-    ->name('input.setoran');
-
-Route::post('/input-setoran', [SetoranController::class, 'store'])
-    ->middleware(['auth', 'verified'])
-    ->name('input.setoran.store');
-
-Route::get('/rekap-setoran', [RekapSetoranController::class, 'index'])
-    ->middleware(['auth', 'verified'])
-    ->name('rekap.setoran');
-
-Route::get('/rekap-siswa', [RekapSiswaController::class, 'index'])
-    ->middleware(['auth', 'verified'])
-    ->name('rekap.siswa');
-
-Route::get('/rekap-siswa/export-csv', [RekapSiswaController::class, 'exportCsvAll'])
-    ->middleware(['auth', 'verified'])->name('rekap.siswa.csv');
-
-Route::get('/rekap-siswa/export-pdf', [RekapSiswaController::class, 'exportPdfAll'])
-    ->middleware(['auth', 'verified'])->name('rekap.siswa.pdf');
-
-Route::get('/rekap-siswa/{id}/export-csv', [RekapSiswaController::class, 'exportCsvSingle'])
-    ->middleware(['auth', 'verified'])->name('rekap.siswa.csv.single');
-
-Route::get('/rekap-siswa/{id}/export-pdf', [RekapSiswaController::class, 'exportPdfSingle'])
-    ->middleware(['auth', 'verified'])->name('rekap.siswa.pdf.single');
-
-// Rute Kelompok Data Master
-// Rute untuk menampilkan halaman (namanya tetap 'master.siswa' agar sidebar tetap menyala)
-Route::get('/database-siswa', [SiswaController::class, 'index'])
-    ->middleware(['auth', 'verified'])->name('master.siswa');
-
-// Rute untuk mengunduh template upload
-Route::get('/database-siswa/template', [SiswaController::class, 'downloadTemplate'])
-    ->middleware(['auth', 'verified'])->name('siswa.template');
-
-// Rute untuk memproses form Tambah Siswa
-Route::post('/database-siswa', [SiswaController::class, 'store'])
-    ->middleware(['auth', 'verified'])->name('master.siswa.store');
-
-// Rute untuk memproses file Upload Massal CSV
-Route::post('/database-siswa/upload', [SiswaController::class, 'import'])
-    ->middleware(['auth', 'verified'])->name('master.siswa.upload');
-
-// Rute untuk Edit dan Hapus Siswa
-Route::put('/database-siswa/{id}', [SiswaController::class, 'update'])->middleware(['auth', 'verified'])->name('master.siswa.update');
-Route::delete('/database-siswa/{id}', [SiswaController::class, 'destroy'])->middleware(['auth', 'verified'])->name('master.siswa.destroy');
-
-// --- KELOMPOK ROUTE DATABASE USTADZ ---
 Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('/database-ustadz', [UstadzController::class, 'index'])->name('master.ustadz');
-    Route::post('/database-ustadz', [UstadzController::class, 'store'])->name('master.ustadz.store');
-    Route::put('/database-ustadz/{id}', [UstadzController::class, 'update'])->name('master.ustadz.update');
-    Route::delete('/database-ustadz/{id}', [UstadzController::class, 'destroy'])->name('master.ustadz.destroy');
-    Route::get('/database-ustadz/template', [UstadzController::class, 'downloadTemplate'])->name('ustadz.template');
-    Route::post('/database-ustadz/upload', [UstadzController::class, 'import'])->name('master.ustadz.upload');
+    Route::get('/dashboard', [DashboardController::class, 'index'])
+        ->middleware('feature:dashboard,view')
+        ->name('dashboard');
 
-    Route::get('/master-quran', [MasterQuranController::class, 'index'])->name('master.quran');
+    Route::get('/input-setoran', [SetoranController::class, 'create'])
+        ->middleware('feature:input_setoran,manage')
+        ->name('input.setoran');
 
-    // --- KELOMPOK ROUTE KELOLA USER ---
-    Route::get('/kelola-user', [UserController::class, 'index'])->name('kelola.user');
-    Route::post('/kelola-user', [UserController::class, 'store'])->name('kelola.user.store');
-    Route::put('/kelola-user/{id}', [UserController::class, 'update'])->name('kelola.user.update');
-    Route::delete('/kelola-user/{id}', [UserController::class, 'destroy'])->name('kelola.user.destroy');
-    Route::post('/kelola-user/generate', [UserController::class, 'generateAccounts'])->name('kelola.user.generate');
+    Route::post('/input-setoran', [SetoranController::class, 'store'])
+        ->middleware('feature:input_setoran,manage')
+        ->name('input.setoran.store');
 
-    // --- KELOMPOK ROUTE SINKRONISASI GATE SSO ---
-    Route::get('/sync-sso', [GateUserSyncController::class, 'index'])->name('sync.sso');
-    Route::post('/sync-sso/dry-run', [GateUserSyncController::class, 'dryRun'])->name('sync.sso.dry-run');
-    Route::post('/sync-sso/apply', [GateUserSyncController::class, 'apply'])->name('sync.sso.apply');
+    Route::get('/rekap-setoran', [RekapSetoranController::class, 'index'])
+        ->middleware('feature:rekap_setoran,view')
+        ->name('rekap.setoran');
+
+    Route::prefix('rekap-siswa')->middleware('feature:rekap_siswa,view')->group(function () {
+        Route::get('/', [RekapSiswaController::class, 'index'])->name('rekap.siswa');
+        Route::get('/export-csv', [RekapSiswaController::class, 'exportCsvAll'])->name('rekap.siswa.csv');
+        Route::get('/export-pdf', [RekapSiswaController::class, 'exportPdfAll'])->name('rekap.siswa.pdf');
+        Route::get('/{id}/export-csv', [RekapSiswaController::class, 'exportCsvSingle'])->name('rekap.siswa.csv.single');
+        Route::get('/{id}/export-pdf', [RekapSiswaController::class, 'exportPdfSingle'])->name('rekap.siswa.pdf.single');
+    });
+
+    // Rute Kelompok Data Master Siswa
+    Route::prefix('database-siswa')->middleware('feature:master_siswa,view')->group(function () {
+        Route::get('/', [SiswaController::class, 'index'])->name('master.siswa');
+        Route::get('/template', [SiswaController::class, 'downloadTemplate'])->name('siswa.template');
+        Route::post('/dry-run', [SiswaController::class, 'dryRun'])->middleware('feature:master_siswa,manage')->name('master.siswa.dry-run');
+        Route::post('/apply-import', [SiswaController::class, 'applyImport'])->middleware('feature:master_siswa,manage')->name('master.siswa.apply-import');
+        Route::post('/', [SiswaController::class, 'store'])->middleware('feature:master_siswa,manage')->name('master.siswa.store');
+        Route::post('/upload', [SiswaController::class, 'import'])->middleware('feature:master_siswa,manage')->name('master.siswa.upload');
+        Route::put('/{id}', [SiswaController::class, 'update'])->middleware('feature:master_siswa,manage')->name('master.siswa.update');
+        Route::delete('/{id}', [SiswaController::class, 'destroy'])->middleware('feature:master_siswa,manage')->name('master.siswa.destroy');
+    });
+
+    // Rute Kelompok Data Master Ustadz
+    Route::prefix('database-ustadz')->middleware('feature:master_ustadz,view')->group(function () {
+        Route::get('/', [UstadzController::class, 'index'])->name('master.ustadz');
+        Route::get('/template', [UstadzController::class, 'downloadTemplate'])->name('ustadz.template');
+        Route::post('/', [UstadzController::class, 'store'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.store');
+        Route::put('/{id}', [UstadzController::class, 'update'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.update');
+        Route::delete('/{id}', [UstadzController::class, 'destroy'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.destroy');
+        Route::post('/upload', [UstadzController::class, 'import'])->middleware('feature:master_ustadz,manage')->name('master.ustadz.upload');
+    });
+
+    Route::get('/master-quran', [MasterQuranController::class, 'index'])
+        ->middleware('feature:master_quran,view')
+        ->name('master.quran');
+
+    // Kelompok Route Kelola User
+    Route::prefix('kelola-user')->middleware('feature:kelola_user,view')->group(function () {
+        Route::get('/', [UserController::class, 'index'])->name('kelola.user');
+        Route::post('/', [UserController::class, 'store'])->middleware('feature:kelola_user,manage')->name('kelola.user.store');
+        Route::put('/{id}', [UserController::class, 'update'])->middleware('feature:kelola_user,manage')->name('kelola.user.update');
+        Route::delete('/{id}', [UserController::class, 'destroy'])->middleware('feature:kelola_user,manage')->name('kelola.user.destroy');
+        Route::post('/generate', [UserController::class, 'generateAccounts'])->middleware('feature:kelola_user,manage')->name('kelola.user.generate');
+    });
+
+    // Kelompok Route Sinkronisasi Gate SSO
+    Route::prefix('sync-sso')->middleware('feature:sync_sso,view')->group(function () {
+        Route::get('/', [GateUserSyncController::class, 'index'])->name('sync.sso');
+        Route::post('/settings', [GateUserSyncController::class, 'updateSettings'])->middleware('feature:sync_sso,manage')->name('sync.sso.settings');
+        Route::post('/test-connection', [GateUserSyncController::class, 'testConnection'])->middleware('feature:sync_sso,manage')->name('sync.sso.test-connection');
+        Route::post('/dry-run', [GateUserSyncController::class, 'dryRun'])->middleware('feature:sync_sso,manage')->name('sync.sso.dry-run');
+        Route::post('/apply', [GateUserSyncController::class, 'apply'])->middleware('feature:sync_sso,manage')->name('sync.sso.apply');
+    });
+
+    // Kelompok Route Hak Akses (RBAC)
+    Route::prefix('kelola-hak-akses')->middleware('feature:kelola_hak_akses,view')->group(function () {
+        Route::get('/', [RolePermissionController::class, 'index'])->name('kelola.hak-akses');
+        Route::post('/', [RolePermissionController::class, 'update'])->middleware('feature:kelola_hak_akses,manage')->name('kelola.hak-akses.update');
+        Route::post('/reset', [RolePermissionController::class, 'reset'])->middleware('feature:kelola_hak_akses,manage')->name('kelola.hak-akses.reset');
+    });
 });
 
 Route::middleware('auth')->group(function () {

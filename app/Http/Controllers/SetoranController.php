@@ -15,6 +15,11 @@ class SetoranController extends Controller
     // Menampilkan halaman form dengan data dinamis
     public function create()
     {
+        $user = auth()->user();
+        if ($user && ! $user->hasPermission('input_setoran')) {
+            abort(403, 'Akses ditolak. Anda tidak memiliki izin untuk menginput setoran.');
+        }
+
         return Inertia::render('InputSetoran', [
             // Hanya kirim siswa yang statusnya Aktif
             'siswas' => Siswa::where('status', 'Aktif')->orderBy('nama', 'asc')->get(),
@@ -26,6 +31,11 @@ class SetoranController extends Controller
     // Menerima dan menyimpan data dari React ke Database
     public function store(Request $request)
     {
+        $user = auth()->user();
+        if ($user && ! $user->hasPermission('input_setoran')) {
+            abort(403, 'Akses ditolak. Anda tidak memiliki izin untuk menginput setoran.');
+        }
+
         $validated = $request->validate([
             'siswa_id' => 'required|exists:siswas,id',
             'jenis' => 'required|in:Hafalan,Murojaah',
