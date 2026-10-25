@@ -66,6 +66,7 @@ Struktur data dirancang ternormalisasi dengan referensial integritas (`foreignId
 erDiagram
     USERS {
         bigint id PK
+        string gate_user_uuid UK "UUID pengguna terpusat dari Gate SSO"
         string name
         string username UK "Digunakan untuk login (NIS / NIP / admin)"
         string email UK
@@ -238,7 +239,67 @@ flowchart TD
 
 ---
 
-## 6. Alur Pelaporan & Ekspor Data (*Reporting & Export Pipeline*)
+## 6. Alur Mekanisme Sinkronisasi Gate SSO & Dry-Run (*Selective Provisioning*)
+
+Mekanisme sinkronisasi dua tahap (*two-stage provisioning*) yang aman dengan pratinjau (*dry-run*) dan pemilihan manual (*checkbox selection*):
+
+```mermaid
+flowchart TD
+    subgraph GateSource ["Gate SSO Source (Remote API / Local Fallback)"]
+        RemoteGate["Remote API: https://gate.sabira-iibs.id/api/provisioning/users"]
+        LocalGate["Local SQLite: /Users/ryand/Documents/LARAVEL/sabira/gate-sso"]
+    end
+
+    subgraph Phase1 ["Tahap 1: Dry-Run & Rekonsiliasi (Tanpa Mengubah Data)"]
+        Fetch[GateProvisioningClient::fetchCanonicalUsers]
+        Reconcile[GateUserSyncService::reconcileUsers]
+        Classify{Perbandingan Data Lokal vs Gate SSO}
+        
+        NewUser[Kategori: Pengguna Baru]
+        UpdateUser[Kategori: Perlu Update Profil]
+        MatchedUser[Kategori: Sudah Sinkron / Identik]
+        
+        UIPreview[Render Pratinjau di SyncSso.jsx:<br/>- KPI Summary Cards<br/>- Filter Role & Status<br/>- Checkbox Select All / Parsial]
+    end
+
+    subgraph Phase2 ["Tahap 2: Eksekusi Selektif (Apply Sync)"]
+        SubmitCheck[Admin Submit: Array of Selected UUIDs]
+        DBTrans[Database Transaction]
+        
+        MapRule{Aturan Pemetaan Role}
+        MapSiswa[student / siswa / santri ➔ Role: Siswa<br/>Sync ke tabel users & siswas]
+        MapAdmin[admin / superadmin ➔ Role: Admin<br/>Sync ke tabel users]
+        MapUstadz[teacher / staff / wali / dll. ➔ Role: Ustadz<br/>Sync ke tabel users & ustadzs]
+        
+        ReportBack[Lapor Hasil ke Gate SSO: /api/provisioning/sync-results]
+    end
+
+    RemoteGate -.->|Prioritas 1: HTTP Call| Fetch
+    LocalGate -.->|Prioritas 2: Fallback / Offline| Fetch
+    Fetch --> Reconcile
+    Reconcile --> Classify
+    Classify -->|Belum Ada di DB| NewUser
+    Classify -->|Ada Perubahan Profil| UpdateUser
+    Classify -->|Data Sama Persis| MatchedUser
+    
+    NewUser --> UIPreview
+    UpdateUser --> UIPreview
+    MatchedUser --> UIPreview
+    
+    UIPreview --> SubmitCheck
+    SubmitCheck --> DBTrans
+    DBTrans --> MapRule
+    MapRule --> MapSiswa
+    MapRule --> MapAdmin
+    MapRule --> MapUstadz
+    MapSiswa --> ReportBack
+    MapAdmin --> ReportBack
+    MapUstadz --> ReportBack
+```
+
+---
+
+## 7. Alur Pelaporan & Ekspor Data (*Reporting & Export Pipeline*)
 
 Sistem mendukung ekspor rekapitulasi baik secara massal maupun personal untuk setiap santri:
 
@@ -272,7 +333,7 @@ graph LR
 
 ---
 
-## 7. Status & Siklus Sesi Autentikasi (*Authentication State Machine*)
+## 8. Status & Siklus Sesi Autentikasi (*Authentication State Machine*)
 
 ```mermaid
 stateDiagram-v2

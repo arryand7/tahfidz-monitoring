@@ -22,9 +22,10 @@ class User extends Authenticatable
         'name',
         'email',
         'password',
-        'username', // Tambahan baru
-        'role',     // Tambahan baru
-        'status',   // Tambahan baru
+        'username',
+        'role',
+        'status',
+        'gate_user_uuid',
     ];
 
     /**

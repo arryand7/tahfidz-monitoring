@@ -41,6 +41,11 @@
 - ⚙️ **Kelola Pengguna & Generator Akun Massal**:
   - Pembuatan akun otomatis satu kali klik untuk semua santri (username menggunakan NIS) dan ustadz (username menggunakan NIP).
   - Manajemen wewenang pengguna (*Admin*, *Ustadz*, *Siswa*).
+- 🔄 **Sinkronisasi Pengguna Terpusat (Gate SSO)**:
+  - Integrasi dua arah dengan Gate SSO (`gate.sabira-iibs.id` dan offline/local database SQLite).
+  - Mekanisme **Dry-Run (Pratinjau)** sebelum eksekusi untuk melihat klasifikasi user (Baru, Perlu Update, Sudah Sinkron).
+  - Fitur **Pilih Semua / Parsial (Checkbox Selection)** untuk memilih user mana saja yang akan dimasukkan ke aplikasi.
+  - Aturan pemetaan cerdas: *student/siswa/santri* ➔ **Siswa** (sinkron ke tabel `siswas`), *admin* ➔ **Admin**, *teacher/staff/lainnya* ➔ **Ustadz** (sinkron ke tabel `ustadzs`).
 - 🛡️ **Sistem Keamanan & Validasi**:
   - Otentikasi berbasis username & kata sandi dengan proteksi *Rate Limiting* (anti-bruteforce).
   - Role-Based Access Control (RBAC) pada level routing dan antarmuka pengguna.

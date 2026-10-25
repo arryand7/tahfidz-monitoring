@@ -108,6 +108,11 @@ export default function AuthenticatedLayout({ user, header, children }) {
                                 <span className="text-lg">⚙️</span>
                                 {isSidebarOpen && <span className="ml-3">Kelola User</span>}
                             </Link>
+
+                            <Link href={route('sync.sso')} className={`flex items-center whitespace-nowrap px-4 py-2 rounded-lg transition-colors ${route().current('sync.sso*') ? 'bg-emerald-100 text-emerald-700' : 'text-gray-600 hover:bg-emerald-50 hover:text-emerald-700'}`}>
+                                <span className="text-lg">🔄</span>
+                                {isSidebarOpen && <span className="ml-3">Sinkronisasi SSO</span>}
+                            </Link>
                         </>
                     )}
 

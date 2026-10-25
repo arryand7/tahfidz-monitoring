@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
+use App\Http\Controllers\GateUserSyncController;
 use App\Http\Controllers\MasterQuranController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\RekapSetoranController;
@@ -92,6 +93,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/kelola-user/{id}', [UserController::class, 'update'])->name('kelola.user.update');
     Route::delete('/kelola-user/{id}', [UserController::class, 'destroy'])->name('kelola.user.destroy');
     Route::post('/kelola-user/generate', [UserController::class, 'generateAccounts'])->name('kelola.user.generate');
+
+    // --- KELOMPOK ROUTE SINKRONISASI GATE SSO ---
+    Route::get('/sync-sso', [GateUserSyncController::class, 'index'])->name('sync.sso');
+    Route::post('/sync-sso/dry-run', [GateUserSyncController::class, 'dryRun'])->name('sync.sso.dry-run');
+    Route::post('/sync-sso/apply', [GateUserSyncController::class, 'apply'])->name('sync.sso.apply');
 });
 
 Route::middleware('auth')->group(function () {
